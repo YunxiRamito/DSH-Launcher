@@ -63,19 +63,46 @@ if (-not $SkipAsset) {
     Ok ("资产: {0}  {1:N1} MB" -f $zipItem.Name, ($zipItem.Length / 1MB))
 }
 
-# 2) release 在不在,不在就建
+# 2) 从 manifest.json 取更新日志当 Release 正文
+$ManifestPath = Join-Path $Root 'manifest.json'
+$releaseBody = $null
+if (Test-Path $ManifestPath) {
+    try {
+        $manifest = Get-Content $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($manifest.version -eq $Version -and $manifest.notes) {
+            $releaseBody = [string]$manifest.notes
+        }
+    } catch { }
+}
+if ($releaseBody) {
+    Ok "更新日志: 从 manifest.json 取到 $($releaseBody.Length) 字符"
+} else {
+    Warn 'manifest.json 里没有对应版本的更新日志,Release 正文只能放最简说明'
+    $releaseBody = "DeepSeek Harness 启动器 v$Version"
+}
+
+# 3) release 在不在,不在就建
 Say ''
 Step "处理 Release $Tag"
 $release = $null
 try {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/tags/$Tag" -Headers $Headers -TimeoutSec 20
     Ok ("已存在: " + $release.html_url)
+
+    # 已存在也把正文刷新成最新日志,免得改过日志还要手工编辑
+    if ($release.body -ne $releaseBody) {
+        $patch = @{ body = $releaseBody } | ConvertTo-Json
+        $release = Invoke-RestMethod -Method Patch `
+            -Uri "https://api.github.com/repos/$Repository/releases/$($release.id)" `
+            -Headers $Headers -Body $patch -ContentType 'application/json' -TimeoutSec 30
+        Ok '正文已刷新为最新更新日志'
+    }
 } catch {
     $body = @{
-        tag_name         = $Tag
-        name             = $Tag
-        generate_release_notes = $true
-        body             = "DeepSeek Harness 启动器 $Version`n`n由 publish-release.ps1 自动发布。"
+        tag_name               = $Tag
+        name                   = $Tag
+        generate_release_notes = $false
+        body                   = $releaseBody
     } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$Repository/releases" `
         -Headers $Headers -Body $body -ContentType 'application/json' -TimeoutSec 30

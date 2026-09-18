@@ -1,11 +1,11 @@
 {
   "version": "1.3.18",
-  "sha256": "69492d0001021b409a512caef67538f1be6f72cb2c3670e9b6fb9e2c9efbdb5b",
+  "sha256": "519f99364dc2fb417f406695dd935d2add4b543d483956d52ab1669198a9619b",
   "subDirectory": "",
   "assets": {
     "github": "https://github.com/YunxiRamito/DSH-Launcher/releases/download/v1.3.18/DeepSeekHarness-1.3.18.zip",
     "mirrors": []
   },
-  "notes": "DeepSeek Harness 启动器 v1.3.18",
-  "releasedAt": "2026-09-19T01:31:10"
+  "notes": "## 1.3.18\n\n**菜单高度自适应**\n\n- 菜单不再写死高度。之前加了「检查更新」之后固定高度没跟上,最后一项「退出」被裁在屏幕外\n- 改成每次弹出时按内容量高度,以后加菜单项 / 改字号 / 换 DPI 缩放都不用再手改常量\n\n**清单缓存策略修正**\n\n- jsDelivr 对固定的清单路径有约 12 小时缓存。旧客户端查新版时读到的是缓存的旧清单,\n  会误判成「已经最新」——这个坑在测试机上真实踩到过\n- 现在清单一律以 `raw.githubusercontent.com` 为首选(实时),jsDelivr 只作兜底\n- 真正的加速挪到不可变的 zip 资产那一侧(GitHub 资产套 `ghfast.top` / `ghproxy.net` 前缀)\n\n---",
+  "releasedAt": "2026-09-19T01:32:44"
 }

@@ -40,6 +40,41 @@ function Ok   ([string]$m) { Write-Host "  [OK]  $m" -ForegroundColor Green }
 function Warn ([string]$m) { Write-Host "  [!!]  $m" -ForegroundColor Yellow }
 function Step ([string]$m) { Write-Host "  [..]  $m" -ForegroundColor Cyan }
 
+# 从 CHANGELOG.md 里抠出这一版的说明,给 GitHub Release 当正文。
+# 没写就打警告,并退回一句最简说明——不拦着发版,但会提醒你补。
+function Get-ReleaseNotes([string]$targetVersion) {
+    $changeLog = Join-Path $PSScriptRoot 'CHANGELOG.md'
+    if (-not (Test-Path $changeLog)) {
+        Warn "没有 CHANGELOG.md,这版将没有更新日志"
+        return "DeepSeek Harness 启动器 v$targetVersion"
+    }
+
+    $lines = Get-Content $changeLog -Encoding UTF8
+    $collecting = $false
+    $buffer = New-Object System.Collections.ArrayList
+    foreach ($line in $lines) {
+        if ($line -match '^##\s+(.+?)\s*$') {
+            if ($collecting) { break }
+            $heading = $Matches[1].Trim()
+            if ($heading -eq $targetVersion -or $heading -eq "v$targetVersion") {
+                $collecting = $true
+                [void]$buffer.Add("## $targetVersion")
+                continue
+            }
+        }
+        if ($collecting) { [void]$buffer.Add($line) }
+    }
+
+    $text = ($buffer -join "`n").Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        Warn "CHANGELOG.md 里没有 $targetVersion 这一节,建议补上再发"
+        return "DeepSeek Harness 启动器 v$targetVersion"
+    }
+
+    Ok "更新日志: 取到 $targetVersion 一节($($text.Length) 字符)"
+    return $text
+}
+
 # ---------------------------------------------------------------- 版本号
 Say ''
 Say '========================================'
@@ -136,7 +171,7 @@ $manifest = [ordered]@{
         github  = $assetUrl
         mirrors = @()
     }
-    notes        = "DeepSeek Harness 启动器 v$version"
+    notes        = Get-ReleaseNotes $version
     releasedAt   = (Get-Date).ToString('s')
 }
 
