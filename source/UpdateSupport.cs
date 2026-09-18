@@ -53,15 +53,16 @@ namespace DeepSeekHarnessLauncher
             }
 
             // 为什么不像图片 CDN 那样用 jsDelivr 当首选:
-            // jsDelivr 对我们这条 jsdelivr 路径有大约 12 小时缓存,而旧客户端查新版时
-            // 请求的还是同一个路径,缓存里没有新版本,就会误判成"已经最新"。
-            // 所以清单一律走实时源(raw),jsDelivr 只当兜底;
-            // 缓存参数没有任何作用(jsDelivr 忽略 query),别自欺欺人。
+            // jsDelivr 对这条路径有大约 12 小时缓存,旧客户端查新版时请求的还是同一个路径,
+            // 缓存里没有新版本,就会误判成"已经最新"。
             //
-            // 真正的加速在下载那一侧:zip 资产是不可变的,套镜像前缀没有缓存问题。
-            string raw = "https://raw.githubusercontent.com/" + Repository + "/" + Branch + "/" + ManifestFile;
-            string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile;
+            // 而且 raw.githubusercontent 也不是实时的 —— 它背后是 Fastly,同样会缓存几分钟。
+            // 所以两个源都要带一个每次都不同的查询参数来打破缓存(CDN 把 query 算进缓存键)。
+            string nonce = DateTime.UtcNow.Ticks.ToString();
+            string raw = "https://raw.githubusercontent.com/" + Repository + "/" + Branch + "/" + ManifestFile + "?t=" + nonce;
+            string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile + "?t=" + nonce;
 
+            // 真正的加速放在下载那一侧:zip 资产内容不可变,套镜像前缀没有缓存问题。
             return new string[] { raw, jsdelivr };
         }
 

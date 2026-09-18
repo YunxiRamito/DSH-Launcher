@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.18";
+        public const string Version = "1.3.19";
         public const int TrayIconId = 1;
     }
 
@@ -1205,10 +1205,11 @@ namespace DeepSeekHarnessLauncher
             try
             {
                 WriteLog("=== 启动期自更新:开始 ===");
-                _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
-                _updateWindow.Show();
-                _updateWindow.Update("正在检查更新…", "正在读取版本清单", -1);
-                WriteLog("更新进度窗已创建并显示");
+
+                // 进度窗是"好看"的部分,不能让它把更新本身拖死。
+                // 建不出来就照常更新,只是没进度条。
+                ShowUpdateWindow();
+                WriteLog("进度窗状态: " + (_updateWindow != null ? "已显示" : "不可用,继续无窗更新"));
 
                 string error;
                 UpdateManifest manifest = UpdateSupport.FetchManifest(out error);
@@ -1231,7 +1232,7 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 WriteLog("发现新版本 " + manifest.Version + "(本机 " + Constants.Version + "),开始强制更新");
-                _updateWindow.Update("正在更新到 v" + manifest.Version, "准备下载…", 0);
+                UpdateWindow("正在更新到 v" + manifest.Version, "准备下载…", 0);
 
                 string staging;
                 string stageError;
@@ -1246,7 +1247,7 @@ namespace DeepSeekHarnessLauncher
                         }
 
                         double percent = received * 100.0 / total;
-                        _updateWindow.Update(
+                        UpdateWindow(
                             null,
                             DescribeDownload(received, total, percent),
                             percent);
@@ -1256,13 +1257,13 @@ namespace DeepSeekHarnessLauncher
                 if (staging == null)
                 {
                     WriteLog("更新下载失败: " + stageError);
-                    _updateWindow.Update("更新失败", stageError, 0);
+                    UpdateWindow("更新失败", stageError, 0);
                     Thread.Sleep(4000);
                     FinishUpdateWindow();
                     return;
                 }
 
-                _updateWindow.Update(
+                UpdateWindow(
                     "正在应用更新",
                     "替换文件后启动器会自动重启,DSH 服务不受影响",
                     100);
@@ -1277,9 +1278,41 @@ namespace DeepSeekHarnessLauncher
             }
             catch (Exception exception)
             {
-                WriteLog("启动期更新出错: " + exception.Message);
+                WriteLog("启动期更新出错: " + DescribeException(exception));
                 FinishUpdateWindow();
             }
+        }
+
+        /// <summary>
+        /// 把异常说清楚。有些异常(例如 WinRT 抛的)Message 是空的,
+        /// 只记 Message 会得到一行空白日志,排障时等于没写。
+        /// </summary>
+        private static string DescribeException(Exception exception)
+        {
+            if (exception == null)
+            {
+                return "(null)";
+            }
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            builder.Append(exception.GetType().FullName);
+
+            if (!string.IsNullOrEmpty(exception.Message))
+            {
+                builder.Append(": ").Append(exception.Message);
+            }
+
+            if (exception.InnerException != null)
+            {
+                builder.Append(" <- ").Append(DescribeException(exception.InnerException));
+            }
+
+            if (exception.HResult != 0)
+            {
+                builder.Append("  HRESULT=0x").Append(exception.HResult.ToString("X8"));
+            }
+
+            return builder.ToString();
         }
 
         private static string DescribeDownload(long received, long total, double percent)
@@ -1293,6 +1326,37 @@ namespace DeepSeekHarnessLauncher
             catch
             {
                 return "下载中…";
+            }
+        }
+
+        /// <summary>尝试显示进度窗。失败只记日志,不打断更新。</summary>
+        private void ShowUpdateWindow()
+        {
+            try
+            {
+                _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
+                _updateWindow.Show();
+                UpdateWindow("正在检查更新…", "正在读取版本清单", -1);
+            }
+            catch (Exception exception)
+            {
+                WriteLog("进度窗创建失败(继续无窗更新): " + DescribeException(exception));
+                _updateWindow = null;
+            }
+        }
+
+        /// <summary>安全地刷进度窗:窗口不存在就什么也不做。</summary>
+        private void UpdateWindow(string title, string detail, double percent)
+        {
+            try
+            {
+                if (_updateWindow != null)
+                {
+                    _updateWindow.Update(title, detail, percent);
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -1484,7 +1548,7 @@ namespace DeepSeekHarnessLauncher
                         Constants.Title + " 正在下载更新 " + percent.ToString() + "%");
                     if (_updateWindow != null)
                     {
-                        _updateWindow.Update(null, DescribeDownload(received, total, percent), percent);
+                        UpdateWindow(null, DescribeDownload(received, total, percent), percent);
                     }
                 },
                 out error);
@@ -1504,7 +1568,7 @@ namespace DeepSeekHarnessLauncher
             WriteLog("更新包已解压到 " + staging + ",准备替换");
             if (_updateWindow != null)
             {
-                _updateWindow.Update(
+                UpdateWindow(
                     "正在应用更新",
                     "替换文件后启动器会自动重启,DSH 服务不受影响",
                     100);
