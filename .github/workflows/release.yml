@@ -1,0 +1,93 @@
+name: release
+
+# 打 tag 就自动出包并建 Release。
+# 版本号必须和 source/DeepSeekHarness.csproj 里的 <Version> 一致,否则直接失败。
+#
+# 用法:
+#   git tag v1.3.10
+#   git push origin v1.3.10
+#
+# 发完之后本地跑一次 release.ps1 更新 manifest.json 里的 sha256 并提交。
+# (runner 上算出的哈希没法自动提交回来,这一步留人工)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 装 .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 读版本并校验 tag
+        id: meta
+        shell: pwsh
+        run: |
+          $projectVersion = ([regex]::Match((Get-Content source\DeepSeekHarness.csproj -Raw), '<Version>([^<]+)</Version>')).Groups[1].Value.Trim()
+          $tag = '${{ github.ref_name }}'
+          Write-Host "csproj=$projectVersion  tag=$tag"
+          if ($tag -ne "v$projectVersion") {
+            throw "tag($tag) 和 csproj 版本(v$projectVersion) 对不上"
+          }
+          "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip=DeepSeekHarness-$projectVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 编译主程序(WinUI3)
+        shell: pwsh
+        run: |
+          dotnet publish source\DeepSeekHarness.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained false `
+            --output source\dist-release `
+            -p:AssemblyName='DeepSeek Harness.Core' `
+            -p:PublishSingleFile=false `
+            -p:IncludeNativeLibrariesForSelfExtract=false `
+            -p:WindowsAppSDKSelfContained=false `
+            -p:DebugType=None -p:DebugSymbols=false
+
+      - name: 编译外层引导程序
+        shell: pwsh
+        run: |
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /platform:x64 /optimize+ /utf8output `
+            "/win32icon:source\DeepSeekHarness.ico" `
+            "/win32manifest:source\RuntimeBootstrap.manifest" `
+            "/out:source\dist-release\DeepSeek Harness.exe" `
+            "source\RuntimeBootstrap.cs"
+          if ($LASTEXITCODE -ne 0) { throw "引导程序编译失败" }
+
+      - name: 打包并算哈希
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'source\dist-release\*' -DestinationPath '${{ steps.meta.outputs.zip }}' -CompressionLevel Optimal
+          $hash = (Get-FileHash '${{ steps.meta.outputs.zip }}' -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256: $hash"
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        id: pack
+
+      - name: 发 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.meta.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            自动构建产物 `${{ steps.meta.outputs.zip }}`
+
+            SHA256: `${{ steps.pack.outputs.sha256 }}`
+
+            > 记得把上面的 SHA256 更新到仓库根目录 `manifest.json` 并提交,
+            > 否则安装器会拿旧哈希校验失败。

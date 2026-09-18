@@ -1,0 +1,26 @@
+# 构建产物
+source/bin/
+source/obj/
+source/dist/
+source/dist-*/
+source/publish/
+dist/
+
+# 发版打包出来的 zip(作为 release 资产上传,不进仓库)
+*.zip
+
+# 早期 WinForms 版的编译产物,只是留个纪念,源码在 legacy\*.cs
+source/legacy/*.exe
+
+# NuGet
+*.nupkg
+packages/
+
+# 编辑器 / 本机
+.vs/
+.idea/
+*.user
+*.suo
+*.log
+Thumbs.db
+desktop.ini

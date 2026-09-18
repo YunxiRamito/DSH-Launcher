@@ -1,0 +1,230 @@
+# 启动器发布与接入指南
+
+> 这份文档讲两件事:**这个仓库怎么发版**,以及 **DSH Installer 怎么拿到它**。
+> 最后更新:2026-09-18
+
+---
+
+## 零、仓库现状
+
+| 项 | 值 |
+|----|-----|
+| 启动器仓库 | `https://github.com/YunxiRamito/DSH-Launcher` |
+| 默认分支 | `main` |
+| 本地已初始化 git,remote `origin` 已配好 | `G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter` |
+| 首批产物 | `DeepSeekHarness-1.3.9.zip`(10.4MB) |
+| 安装器读取的清单 | 仓库根目录 `manifest.json` |
+
+**首次推送**(还没推过):
+
+```powershell
+cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+git add -A
+git commit -m "feat: DeepSeek Harness 启动器 1.3.9"
+git tag v1.3.9
+git push -u origin main --tags
+# 然后把 DeepSeekHarness-1.3.9.zip 传到 v1.3.9 的 Release 资产里
+```
+
+之后每次发版只需 `.\release.ps1` + 上面那几条 git 命令。
+
+---
+
+## 一、仓库分工
+
+```
+deepseek-harness-launcher          本仓库 = DeepSeek Starter(启动器)
+  ├─ source\                        WinUI3 源码
+  ├─ manifest.json                  ← 安装器读的发布清单(必须放仓库根目录)
+  ├─ release.ps1                    一键发版脚本
+  ├─ .github\workflows\release.yml  打 tag 自动出包
+  └─ Releases                       DeepSeekHarness-<版本>.zip
+
+dsh-installer                      另一个仓库 = 安装程序
+  └─ 装着的时候:读 launcher 仓库的 manifest.json → 下 zip → 解开
+```
+
+**为什么要分开**
+
+启动器一两周就可能改一次(托盘菜单、图标、动画),安装器可能几个月才动一次。
+拆开之后:启动器发新版,**安装器一个字都不用重发**,装机的人照样拿到最新启动器。
+
+---
+
+## 二、安装器怎么取包
+
+```
+安装器启动
+  └─ LauncherFeed.Fetch("owner/deepseek-harness-launcher", 源偏好)
+       ├─ 国内源优先:https://cdn.jsdelivr.net/gh/<repo>@main/manifest.json
+       └─ 官方兜底:  https://raw.githubusercontent.com/<repo>/main/manifest.json
+            ↓ 拿到清单
+       ├─ version  → 跟本机已装的比,一样就跳过
+       ├─ assets.github → 官方 zip 地址
+       │    └─ 国内源时自动加前缀:https://ghproxy.net/<原地址>
+       ├─ assets.mirrors[] → 额外的备用地址(自建镜像、网盘直链都行)
+       └─ sha256 → 下完校验,对不上就重下
+```
+
+拉不到清单怎么办:**回落到安装器自带的 `payload\launcher.zip`**(离线兜底)。
+所以安装器构建时仍然建议打一份 payload,但那份可以是很久以前的版本。
+
+---
+
+## 三、发版流程
+
+### 省事版:一条命令
+
+```powershell
+cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+.\release.ps1
+```
+
+它会:读版本号 → 编译主程序 + 引导程序 → 检查产物 → 清 `.old` 残留 →
+打包 zip → 算 SHA256 → 写好 `manifest.json` → 打印后面的 git 命令。
+
+然后:
+
+```powershell
+git add manifest.json
+git commit -m "release: v1.3.9"
+git tag v1.3.9
+git push origin main --tags
+```
+
+最后把 `DeepSeekHarness-1.3.9.zip` 传到 `v1.3.9` Release 的资产里(网页点一下,
+或 `gh release upload v1.3.9 .\DeepSeekHarness-1.3.9.zip`)。
+
+### CI 版:打 tag 自动出包
+
+`.github\workflows\release.yml` 会在推 tag 时自动编译 + 打包 + 建 Release,
+并且**校验 tag 和 csproj 版本一致**,不一致直接失败,防止发错版本。
+
+CI 出包后,`manifest.json` 里的 sha256 仍需本地跑一次 `release.ps1` 更新再提交
+(runner 上的哈希没法自动推回来)。
+
+### 手动版:一步步来
+
+#### 1. 改版本号(四个地方必须一起改)
+
+| 文件 | 字段 |
+|------|------|
+| `source\DeepSeekHarness.csproj` | `<Version>` `<AssemblyVersion>` `<FileVersion>` |
+| `source\RuntimeBootstrap.cs` | `AssemblyVersion` `AssemblyFileVersion` `AssemblyInformationalVersion` |
+| `source\WinUIProgram.cs` | `Constants.Version` |
+| `source\app.manifest` / `source\RuntimeBootstrap.manifest` | `assemblyIdentity version` |
+
+### 2. 编译
+
+```powershell
+cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter\source'
+$env:NUGET_PACKAGES = 'G:\DeepSeek DSH\.nuget-packages'
+.\build-winui.ps1 -OutputDirectory (Join-Path $PWD 'dist-1.3.9')
+
+# 外层引导程序没有进 build-winui.ps1 的流程,单独编一次
+& 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe' /nologo /target:winexe /platform:x64 /optimize+ `
+  "/win32icon:$PWD\DeepSeekHarness.ico" "/win32manifest:$PWD\RuntimeBootstrap.manifest" `
+  "/out:$PWD\dist-1.3.9\DeepSeek Harness.exe" "$PWD\RuntimeBootstrap.cs"
+```
+
+产物里必须包含:
+
+```
+DeepSeek Harness.exe        ← 外层引导,清单声明 requireAdministrator
+DeepSeek Harness.Core.exe   ← WinUI3 主程序
+*.dll / *.pri / *.json      ← 依赖
+```
+
+### 3. 打包 zip
+
+zip **根目录直接就是文件**,不要多套一层文件夹:
+
+```
+DeepSeekHarness-1.3.9.zip
+├─ DeepSeek Harness.exe
+├─ DeepSeek Harness.Core.exe
+└─ ...
+```
+
+```powershell
+Compress-Archive -Path '.\dist-1.3.9\*' -DestinationPath '.\DeepSeekHarness-1.3.9.zip'
+```
+
+### 4. 算 SHA256
+
+```powershell
+(Get-FileHash '.\DeepSeekHarness-1.3.9.zip' -Algorithm SHA256).Hash.ToLower()
+```
+
+### 5. 发 Release
+
+- tag:`v1.3.9`
+- 资产:`DeepSeekHarness-1.3.9.zip`
+- 说明:写这一版改了什么
+
+### 6. 更新仓库根目录的 `manifest.json`
+
+```json
+{
+  "version": "1.3.9",
+  "sha256": "把上一步的哈希粘这里",
+  "subDirectory": "",
+  "assets": {
+    "github": "https://github.com/<owner>/deepseek-harness-launcher/releases/download/v1.3.9/DeepSeekHarness-1.3.9.zip",
+    "mirrors": []
+  },
+  "notes": "开机自启动菜单项 + 浅色模式高亮修复"
+}
+```
+
+提交到 `main` 分支后,**所有新装用户立刻拿到这一版**。
+
+> jsDelivr 有缓存(约 12 小时)。想立刻刷新,用
+> `https://cdn.jsdelivr.net/gh/<owner>/<repo>@<commit-sha>/manifest.json`
+> 或者临时只走 raw.githubusercontent。安装器两边都会试,不会卡死。
+
+---
+
+## 四、manifest.json 字段说明
+
+| 字段 | 必需 | 说明 |
+|------|------|------|
+| `version` | 是 | 语义化版本,安装器用它跟本机比对 |
+| `assets.github` | 是* | Release 资产地址。安装器会自动配镜像前缀 |
+| `assets.mirrors` | 否 | 额外备用地址,顺序越前越优先(国内源模式下) |
+| `sha256` | 推荐 | zip 校验和;留空则跳过校验 |
+| `subDirectory` | 否 | zip 里启动器在子目录时填,正常留空 |
+| `notes` | 否 | 一句话更新说明,显示在安装器的版本行上 |
+
+\* `assets.github` 和 `assets.mirrors` 至少要有一个。也兼容最简格式:`{ "version": "...", "url": "..." }`。
+
+---
+
+## 五、国内下载加速
+
+安装器会自己处理,不用你额外做什么:
+
+| 场景 | 用的地址 |
+|------|----------|
+| 拉 manifest(国内源) | `https://cdn.jsdelivr.net/gh/<repo>@main/manifest.json` |
+| 拉 manifest(官方源) | `https://raw.githubusercontent.com/<repo>/main/manifest.json` |
+| 下 zip(国内源) | `https://ghproxy.net/<github原始地址>` → `https://ghfast.top/<原始地址>` → 原始地址 |
+| 下 zip(官方源) | 原始地址 → ghproxy 兜底 |
+
+想加自建镜像,写进 `assets.mirrors` 就行,安装器会挨个试。
+
+---
+
+## 六、常见问题
+
+**Q:装完发现启动器版本不对?**
+看安装日志 `%LOCALAPPDATA%\DeepSeekHarness\installer.log`,里面记了实际用的清单地址和下载 URL。
+
+**Q:manifest 更新了但用户还拿到旧版?**
+jsDelivr 缓存。等 12 小时,或者让安装器走官方源,或者用 commit sha 固定路径。
+
+**Q:zip 里的目录多了一层,启动器起不来?**
+`Compress-Archive -Path '.\dist-1.3.9\*'` 的星号别丢。多套一层就把 `subDirectory` 填上。
+
+**Q:为什么 zip 里没有 `.old` 那种残留文件?**
+本机换文件时留下的,发布前清一下 `dist-*` 目录再打包。
