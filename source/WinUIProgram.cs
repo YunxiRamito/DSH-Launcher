@@ -40,10 +40,8 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.9";
+        public const string Version = "1.3.13";
         public const string Url = "http://127.0.0.1:8787/";
-        public const string DefaultRoot = @"G:\DeepSeek DSH";
-        public const string DefaultNode = @"E:\Nodejs\node.exe";
         public const int Port = 8787;
         public const int TrayIconId = 1;
     }
@@ -71,6 +69,20 @@ namespace DeepSeekHarnessLauncher
         private static App _application;
         private static EventWaitHandle _pendingOpenPageEvent;
         private static bool _noBrowser;
+
+        /// <summary>环境自检的结果,给 LauncherContext 复用。</summary>
+        private static string _resolvedRoot;
+        private static string _resolvedNode;
+
+        internal static string ResolvedRoot
+        {
+            get { return _resolvedRoot; }
+        }
+
+        internal static string ResolvedNode
+        {
+            get { return _resolvedNode; }
+        }
 
         internal static bool NoBrowser
         {
@@ -128,10 +140,132 @@ namespace DeepSeekHarnessLauncher
                 return;
             }
 
+            // 环境不满足就在这里明确报错退出,不把异常丢给 WinUI 消息循环
+            if (!RunEnvironmentPreflight())
+            {
+                _pendingOpenPageEvent = null;
+                _application = null;
+                ExitProcess(4);
+                return;
+            }
+
             DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             EnsureXamlControlsResources();
             _currentContext = new LauncherContext(_pendingOpenPageEvent, dispatcherQueue);
             _currentContext.Start();
+        }
+
+        /// <summary>
+        /// 启动前的环境自检:找不到 DSH 或 node 就弹框告知并返回 false。
+        /// 结果缓存在 _resolvedRoot/_resolvedNode,后续 LauncherContext 直接用。
+        /// </summary>
+        private static bool RunEnvironmentPreflight()
+        {
+            _resolvedRoot = FindRoot();
+            _resolvedNode = FindNode();
+            return PreflightCheck(_resolvedRoot, _resolvedNode);
+        }
+
+        private static void ExitProcess(int code)
+        {
+            try
+            {
+                Environment.Exit(code);
+            }
+            catch
+            {
+            }
+        }
+
+        private static string FindRoot()
+        {
+            string root = LauncherLocator.FindRoot();
+            if (!string.IsNullOrEmpty(root))
+            {
+                return root;
+            }
+
+            WriteStartupDiagnostic("找不到 DSH 根目录。");
+            return null;
+        }
+
+        private static string FindNode()
+        {
+            string node = LauncherLocator.FindNode();
+            if (!string.IsNullOrEmpty(node))
+            {
+                return node;
+            }
+
+            WriteStartupDiagnostic("找不到 node.exe,DSH 服务无法启动。");
+            return null;
+        }
+
+        /// <summary>
+        /// 启动前的自检。少东西就明明白白告诉用户,别让进程挂着装作没事。
+        /// 返回 false 表示环境不满足,主程序应当直接退出。
+        /// </summary>
+        internal static bool PreflightCheck(string root, string nodePath)
+        {
+            string problem = null;
+            string detail = null;
+
+            if (string.IsNullOrEmpty(nodePath))
+            {
+                problem = "没有找到 Node.js。";
+                detail = "DeepSeek Harness 需要 Node.js 才能运行。\r\n\r\n"
+                    + "如果你是用 DSH Installer 装的,说明安装没走完;\r\n"
+                    + "否则请先安装 Node.js 22 或更高版本,然后重新打开本程序。";
+            }
+            else if (string.IsNullOrEmpty(root))
+            {
+                problem = "没有找到 DeepSeek Harness 本体。";
+                detail = "在下面这些位置都没找到 node_modules\\@deepseek-ai\\dsh :\r\n"
+                    + "  · 环境变量 DSH_ROOT\r\n"
+                    + "  · 启动器同目录的 launcher.json\r\n"
+                    + "  · 启动器所在目录及其上层的 node_modules\r\n"
+                    + "  · 各磁盘根目录下的 DeepSeek DSH\r\n\r\n"
+                    + "请把本程序放在 DSH 根目录下的 \"DeepSeek Harness\" 文件夹里,\r\n"
+                    + "或在同目录建一个 launcher.json,写明 { \"dshRoot\": \"D:\\\\DSH\" }。";
+            }
+
+            if (problem == null)
+            {
+                return true;
+            }
+
+            string logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeepSeekHarness",
+                "launcher.log");
+
+            WriteStartupDiagnostic("自检失败: " + problem);
+
+            WinFormsMessageBox.Show(
+                problem + "\r\n\r\n" + detail + "\r\n\r\n日志: " + logPath,
+                Constants.Title,
+                WinFormsMessageBoxButtons.OK,
+                WinFormsMessageBoxIcon.Warning);
+            return false;
+        }
+
+        /// <summary>启动期的问题写进日志。这里刻意不依赖 LauncherContext 的实例日志。</summary>
+        private static void WriteStartupDiagnostic(string message)
+        {
+            try
+            {
+                string directory = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness");
+                Directory.CreateDirectory(directory);
+                File.AppendAllText(
+                    Path.Combine(directory, "launcher-boot.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + message + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch
+            {
+            }
         }
 
         private static bool IsAdministrator()
@@ -255,7 +389,13 @@ namespace DeepSeekHarnessLauncher
         {
             try
             {
-                string path = Path.Combine(Constants.DefaultRoot, @"logs\last-url.txt");
+                string root = LauncherLocator.FindRoot();
+                if (string.IsNullOrEmpty(root))
+                {
+                    return Constants.Url;
+                }
+
+                string path = Path.Combine(root, @"logs\last-url.txt");
                 if (!File.Exists(path))
                 {
                     return Constants.Url;
@@ -381,7 +521,20 @@ namespace DeepSeekHarnessLauncher
         private const string ShortcutName = "DeepSeek Harness.lnk";
         private const string ApproveKeyPath =
             @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
-        private const string LogPath = @"G:\DeepSeek DSH\logs\launcher.log";
+
+        /// <summary>
+        /// 日志路径不能写死开发机目录。装在别人机器上时,写到 %LOCALAPPDATA%\DeepSeekHarness\launcher.log。
+        /// </summary>
+        private static string LogPath
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness",
+                    "launcher.log");
+            }
+        }
 
         private static void Log(string message)
         {
@@ -617,6 +770,82 @@ namespace DeepSeekHarnessLauncher
         }
     }
 
+    /// <summary>
+    /// 托盘菜单图标用的字体。
+    ///
+    /// Windows 11 才有 "Segoe Fluent Icons",Windows 10 只有 "Segoe MDL2 Assets"。
+    /// 之前代码写死了 Fluent,装到 Win10 上全变成豆腐框。这里探测一下,有就用新的,
+    /// 没有就退到 MDL2 —— 菜单里用到的字形在设计上两套都有,所以退档不会缺图标。
+    /// </summary>
+    internal static class IconFont
+    {
+        private static Microsoft.UI.Xaml.Media.FontFamily _family;
+
+        public static Microsoft.UI.Xaml.Media.FontFamily Family
+        {
+            get
+            {
+                if (_family == null)
+                {
+                    _family = Resolve();
+                }
+
+                return _family;
+            }
+        }
+
+        /// <summary>给日志用:到底选中了哪套字体。</summary>
+        public static string FamilyName
+        {
+            get
+            {
+                return IsInstalled("Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
+            }
+        }
+
+        private static Microsoft.UI.Xaml.Media.FontFamily Resolve()
+        {
+            string name = FamilyName;
+            try
+            {
+                return new Microsoft.UI.Xaml.Media.FontFamily(name);
+            }
+            catch
+            {
+                return new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Symbol");
+            }
+        }
+
+        private static bool IsInstalled(string familyName)
+        {
+            try
+            {
+                // 字体装没装,看注册表里的字体表最省事,不依赖 UI 线程
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                    @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"))
+                {
+                    if (key == null)
+                    {
+                        return false;
+                    }
+
+                    foreach (string valueName in key.GetValueNames())
+                    {
+                        if (valueName.IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+    }
+
     internal sealed class LauncherContext
     {
         private readonly DispatcherQueue _dispatcherQueue;
@@ -656,15 +885,28 @@ namespace DeepSeekHarnessLauncher
         {
             _openPageEvent = openPageEvent;
             _dispatcherQueue = dispatcherQueue;
-            _root = FindRoot();
-            _nodePath = FindNode();
+            _root = Program.ResolvedRoot;
+            _nodePath = Program.ResolvedNode;
             _dshBin = Path.Combine(_root, @"node_modules\@deepseek-ai\dsh\lib\bin.js");
 
-            string logDirectory = Path.Combine(_root, "logs");
-            Directory.CreateDirectory(logDirectory);
-            _logPath = Path.Combine(logDirectory, "launcher.log");
-            _lastUrlPath = Path.Combine(logDirectory, "last-url.txt");
-            _apiPromptedPath = Path.Combine(logDirectory, "api-settings-prompted.flag");
+            // 记下这次找到的路径,下次启动不用再满盘找
+            LauncherLocator.Remember(_root, _nodePath);
+
+            // 运行数据分两处放:
+            //   · launcher.log 跟 launcher-boot.log 一起放 %LOCALAPPDATA%\DeepSeekHarness
+            //     —— 跟 README 说明一致,也避免不同用户对 DSH 目录没写权限时日志丢失
+            //   · last-url.txt / 提示标记 留在 DSH 根目录的 logs 下,跟 DSH 自己的日志作伴
+            string dshLogDirectory = Path.Combine(_root, "logs");
+            Directory.CreateDirectory(dshLogDirectory);
+
+            string userLogDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeepSeekHarness");
+            Directory.CreateDirectory(userLogDirectory);
+
+            _logPath = Path.Combine(userLogDirectory, "launcher.log");
+            _lastUrlPath = Path.Combine(dshLogDirectory, "last-url.txt");
+            _apiPromptedPath = Path.Combine(dshLogDirectory, "api-settings-prompted.flag");
             _serviceUrl = Program.ReadLastUrl();
             _apiKey = CredentialStore.ReadApiKey(_root);
             _balanceAlertTracker = new DeepSeekBalanceAlertTracker(
@@ -1088,42 +1330,6 @@ namespace DeepSeekHarnessLauncher
             _trayMenu.SetBalance(_lastBalanceText, _balanceToolTip);
         }
 
-        private static string FindRoot()
-        {
-            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string localBin = Path.Combine(baseDirectory, @"node_modules\@deepseek-ai\dsh\lib\bin.js");
-            if (File.Exists(localBin))
-            {
-                return baseDirectory;
-            }
-
-            return Constants.DefaultRoot;
-        }
-
-        private static string FindNode()
-        {
-            if (File.Exists(Constants.DefaultNode))
-            {
-                return Constants.DefaultNode;
-            }
-
-            string pathValue = Environment.GetEnvironmentVariable("PATH");
-            if (!String.IsNullOrEmpty(pathValue))
-            {
-                string[] directories = pathValue.Split(';');
-                for (int index = 0; index < directories.Length; index++)
-                {
-                    string candidate = Path.Combine(directories[index], "node.exe");
-                    if (File.Exists(candidate))
-                    {
-                        return candidate;
-                    }
-                }
-            }
-
-            return Constants.DefaultNode;
-        }
-
         private static Icon LoadAppIcon()
         {
             try
@@ -1363,13 +1569,23 @@ namespace DeepSeekHarnessLauncher
             _serviceRunning = true;
             WriteLog("Service is ready.");
 
-            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-            while (String.IsNullOrEmpty(_serviceUrl) && DateTime.UtcNow < deadline)
+            // 带 token 的地址要等 DSH 把它打印出来,实测在慢机器上要二十来秒,
+            // 所以这里耐心等,别拿着不带 token 的地址去开页面
+            DateTime deadline = DateTime.UtcNow.AddSeconds(25);
+            while (DateTime.UtcNow < deadline)
             {
-                Thread.Sleep(100);
+                string candidate = Program.ReadLastUrl();
+                if (!string.IsNullOrEmpty(candidate)
+                    && candidate.IndexOf("token=", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _serviceUrl = candidate;
+                    break;
+                }
+
+                Thread.Sleep(250);
             }
 
-            string url = String.IsNullOrEmpty(_serviceUrl) ? Constants.Url : _serviceUrl;
+            string url = _serviceUrl;
             InvokeOnUi(delegate()
             {
                 SetTrayState(true, Constants.Title + " 正在运行");
@@ -1385,6 +1601,12 @@ namespace DeepSeekHarnessLauncher
                     if (Program.NoBrowser)
                     {
                         WriteLog("Browser page suppressed (no-browser startup argument).");
+                    }
+                    else if (string.IsNullOrEmpty(url) || url.IndexOf("token=", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        // 还没拿到带 token 的地址。开不带 token 的地址只会看到 401,不如不开,
+                        // 等用户点「打开页面」时 OpenServicePage 会再试一次。
+                        WriteLog("Token URL not ready yet; skip auto-open. Click 打开页面 later.");
                     }
                     else
                     {
@@ -1459,7 +1681,28 @@ namespace DeepSeekHarnessLauncher
                 return;
             }
 
-            Program.OpenPage(_serviceUrl);
+            // 带 token 的地址是服务起来之后异步写出来的,所以每次打开都重新读一次。
+            // 拿启动时的 fallback(不带 token)去开页面,DSH 会回 401,用户只看到一行英文报错。
+            string url = Program.ReadLastUrl();
+            if (string.IsNullOrEmpty(url) || url.IndexOf("token=", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                url = _serviceUrl;
+            }
+
+            if (string.IsNullOrEmpty(url) || url.IndexOf("token=", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                WinFormsMessageBox.Show(
+                    "还没拿到带 token 的访问地址。\r\n\r\n"
+                    + "DSH 服务刚起来时地址要等几秒才写出来。稍等一下再点一次「打开页面」就好;\r\n"
+                    + "如果一直拿不到,用「重启 DSH 服务」重来一次。",
+                    Constants.Title,
+                    WinFormsMessageBoxButtons.OK,
+                    WinFormsMessageBoxIcon.Information);
+                return;
+            }
+
+            WriteLog("Opening page: " + RedactSensitiveUrl(url));
+            Program.OpenPage(url);
         }
 
         private void RestartThreadProc()
@@ -1915,10 +2158,14 @@ namespace DeepSeekHarnessLauncher
         {
             try
             {
+                // 顺序很重要:先 Activate 让它成为真窗口,再摆位置、再抢前台。
+                // 有些机器(尤其 Win10)只调 AppWindow.Show() 会显示成不可见/在屏幕外。
+                _window.Activate();
                 PositionWindow();
                 _window.AppWindow.Show();
-                NativeMethods.SetForegroundWindow(
-                    WinRT.Interop.WindowNative.GetWindowHandle(_window));
+                IntPtr handle = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+                NativeMethods.SetForegroundWindow(handle);
+                TryLogDialogShown(handle);
             }
             catch (Exception exception)
             {
@@ -1927,6 +2174,35 @@ namespace DeepSeekHarnessLauncher
             }
 
             return _completion.Task;
+        }
+
+        /// <summary>把窗口实际落点写进日志,排查"看不到窗口"用。</summary>
+        private void TryLogDialogShown(IntPtr handle)
+        {
+            try
+            {
+                Windows.Graphics.SizeInt32 size = _window.AppWindow.Size;
+                Windows.Graphics.PointInt32 position = _window.AppWindow.Position;
+                DisplayArea area = DisplayArea.GetFromWindowId(_window.AppWindow.Id, DisplayAreaFallback.Primary);
+                RectInt32 work = area != null ? area.WorkArea : new RectInt32(0, 0, 0, 0);
+                string directory = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness");
+                Directory.CreateDirectory(directory);
+                File.AppendAllText(
+                    Path.Combine(directory, "launcher-boot.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                        + "  API 设置窗: hwnd=" + handle.ToInt64().ToString()
+                        + " pos=(" + position.X + "," + position.Y + ")"
+                        + " size=" + size.Width + "x" + size.Height
+                        + " visible=" + _window.AppWindow.IsVisible
+                        + " 工作区=" + work.Width + "x" + work.Height
+                        + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch
+            {
+            }
         }
 
         private void Complete(bool confirmed, string apiKey)
@@ -3013,7 +3289,7 @@ namespace DeepSeekHarnessLauncher
 
             FontIcon icon = new FontIcon
             {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+                FontFamily = IconFont.Family,
                 Glyph = glyph,
                 FontSize = 15,
                 HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
@@ -3416,7 +3692,7 @@ namespace DeepSeekHarnessLauncher
             });
             FontIcon icon = new FontIcon
             {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+                FontFamily = IconFont.Family,
                 Glyph = glyph,
                 FontSize = 15,
                 HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,

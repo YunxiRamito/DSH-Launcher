@@ -1,283 +1,251 @@
 # DeepSeek Harness Launcher
 
-Windows WinUI 3 托盘启动器，用于以管理员权限启动本地 DSH Web 服务，并提供现代菜单、Windows 通知、余额显示和余额告警。
+**给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 用的 Windows 托盘启动器。**
+一句话:双击一下,DSH 服务就起来了,托盘里住着,余额随时看。
 
-## 版本信息
+<sub>Windows 托盘启动器 · 一键起服务 · 原生菜单 · 余额与告警 · 中英双语</sub>
 
-```text
-版本：1.3.6
-作者：Deepseek/KitamaruRamito
-公司：高性能萝卜子鲸鲸有限公司
-描述：这是由高性能萝卜子编写的启动高性能萝卜子的启动器喵
+---
+
+## 这是什么
+
+DSH 本体是个跑在本机的 Web 服务(`127.0.0.1:8787`),平时要么开个终端敲命令,要么写批处理。
+
+这个启动器把它变成一个正常 Windows 程序:
+
+- **双击就起**:自动找 DSH 目录和 node,拉起服务,托盘常驻
+- **提权启动**:以管理员运行,DSH 服务也随之拿到管理员令牌
+- **原生托盘菜单**:云母背景、Segoe Fluent 图标、Win11 加载动画
+- **余额显示与告警**:托盘菜单顶部直接看余额,到阈值弹通知
+- **API Key 管理**:内置设置窗,DPAPI 加密存在本机
+- **开机自启**:菜单里一键开关,静默驻留托盘,不弹浏览器
+- **Windows 通知**:起停、失败、余额告警都走系统原生气泡
+
+---
+
+## 下载与安装
+
+### 推荐:用安装程序
+
+**DSH Installer** 会帮你检测环境、补 Node、装 DSH 本体、再把这个启动器铺好,
+连桌面快捷方式和开机自启都一起配了。去那边仓库看说明就行。
+
+### 手动:直接下 zip
+
+1. 到 [Releases](https://github.com/YunxiRamito/DSH-Launcher/releases) 下最新的
+   `DeepSeekHarness-<版本>.zip`
+2. 解压到 **DSH 根目录下** 的 `DeepSeek Harness\` 里,变成这样:
+
+   ```
+   <你的 DSH 目录>\
+   ├─ node_modules\@deepseek-ai\dsh\...     ← DSH 本体
+   ├─ logs\
+   └─ DeepSeek Harness\                      ← 解压到这里
+      ├─ DeepSeek Harness.exe
+      └─ DeepSeek Harness.Core.exe
+   ```
+
+3. 双击 `DeepSeek Harness.exe`,同意一次 UAC
+
+> 启动器会自己找 DSH 目录:先看环境变量 `DSH_ROOT`,再看同目录的 `launcher.json`,
+> 再从自己所在目录往上找 `node_modules\@deepseek-ai\dsh\lib\bin.js`。
+> 所以只要放在 DSH 根目录下面一层,它就能自己认出来。
+> 想手动指定,就在同目录放个 `launcher.json`:
+> `{ "dshRoot": "D:\\DSH", "nodePath": "C:\\Program Files\\nodejs\\node.exe" }`
+
+---
+
+## 系统要求
+
+| 项 | 要求 |
+|----|------|
+| 系统 | **Windows 10 1809(build 17763)及以上**;Win11 全系 |
+| 运行库 | **.NET 8 桌面运行时** + **Windows App Runtime 1.8** |
+| 其他 | 本机有一份能跑的 DSH(含 `node_modules\@deepseek-ai\dsh`)和 node |
+
+WinUI 3 的硬门槛就是 1809,低于这个版本起不来 —— 安装程序会直接劝退。
+
+> **已经在 Win10 1809(build 17763)的干净虚拟机上实测通过**:便携 Node + npm 装 DSH 本体 +
+> 启动器起服务 + 拿到带 token 的地址(HTTP 200)。Win11 上当然也没问题。
+
+---
+
+## 怎么用
+
+托盘图标右键,出来的是自绘菜单:
+
 ```
-
-## 运行结构
-
-```text
-DeepSeek Starter
-├─ README.md
-└─ source
-   ├─ RuntimeBootstrap.cs
-   ├─ RuntimeBootstrap.manifest
-   ├─ App.xaml
-   ├─ App.xaml.cs
-   ├─ WinUIProgram.cs
-   ├─ BalanceSupport.cs
-   ├─ BalanceAlerts.cs
-   ├─ DeepSeekHarness.csproj
-   ├─ app.manifest
-   ├─ build-winui.ps1
-   ├─ make-icon.ps1
-   ├─ NuGet.config
-   ├─ assets
-   ├─ legacy
-   └─ dist
-      ├─ DeepSeek Harness.exe             运行库检查与启动引导
-      ├─ DeepSeek Harness.Core.exe        WinUI 3 主程序
-      ├─ Microsoft.Windows.SDK.NET.dll
-      ├─ Microsoft.WinUI.dll
-      └─ Microsoft.WindowsAppRuntime.Bootstrap.dll
-```
-
-## 启动行为
-
-1. 外层 `DeepSeek Harness.exe` 是小体积 .NET Framework 引导程序，清单声明 `requireAdministrator`。
-2. 引导程序检查 `.NET 8 Desktop Runtime` 和 `Windows App Runtime 1.8`。
-3. 缺少运行库时，弹出 Windows 原生提示框并显示微软官方下载地址。
-4. 依赖齐全后启动同目录的 `DeepSeek Harness.Core.exe`，不会再次请求第二遍 UAC。
-5. 主程序使用管理员令牌启动 Node，因此 DSH 服务也以管理员权限运行。
-6. 使用命名 Mutex 保证单实例。
-7. 检测 `127.0.0.1:8787` 是否已有 DSH。
-8. 隐藏命令行启动 DSH Web 服务，并从输出中捕获 Token URL。
-9. 使用 Windows 原生托盘气泡提示启动结果，并在系统通知区保留 DeepSeek 图标。
-
-程序已经在运行时再次双击快捷方式，会通知原进程打开页面。
-
-## 命令行参数
-
-```text
---no-browser / --silent / --tray / --startup
-    静默自启：正常拉起服务并驻留托盘，但不自动弹出浏览器页面。
-    （托盘菜单里的「开机自启动」写的就是 --no-browser）
---elevated
-    内部参数，由程序自己提权重启时追加，用户不用管。
-```
-
-参数由外层引导程序 `DeepSeek Harness.exe` 透传给内核 `DeepSeek Harness.Core.exe`。
-带 `--no-browser` 启动时，启动成功的托盘气泡照常弹，只是不打开 `127.0.0.1:8787`。
-
-## 开机自启
-
-托盘右键菜单里的「开机自启动」可以直接开关，开启状态显示为「开机自启动 ✓」。
-
-开关会同时维护两处，保证在任务管理器的「启动应用」里也是启用状态：
-
-```text
-HKCU\Software\Microsoft\Windows\CurrentVersion\Run         值名 DeepSeek Harness
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\DeepSeek Harness.lnk
-```
-
-写入的命令固定带 `--no-browser`，所以开机只驻留托盘，不会蹦出浏览器。
-
-## WinUI 3 生命周期
-
-`App.xaml` 负责创建 WinUI 应用资源和 `Application.Resources`。`Program.Main` 只负责管理员权限、单实例、服务事件以及初始化 WinUI 消息循环：
-
-```text
-Main
-  -> Application.Start
-  -> new App()
-  -> App.OnLaunched
-  -> Program.OnApplicationLaunched
-  -> LauncherContext.Start
-```
-
-托盘、服务管理、余额刷新和 API 设置窗口都延迟到 `App.OnLaunched` 之后才创建，避免在 WinUI `Application` 和 `XamlControlsResources` 尚未完成初始化时访问控件。
-
-API 设置窗口使用 WinUI 3 `Window`、`PasswordBox`、`CheckBox` 和 `Button`。旧的 WinForms `ApiSettingsDialog` 已移除；当前窗口的显示、居中和关闭都由 WinUI 生命周期管理。
-
-## WinUI 3 托盘菜单
-
-托盘图标仍由 Windows 通知区托管，右键菜单由独立的 WinUI 3 无边框云母窗口实现：
-
-```text
-余额：¥xx.xx
-────────────
-打开页面
+余额：¥xx.xx              ← 点它改 API Key
+────────────────
+打开页面                   ← 浏览器打开 127.0.0.1:8787
 重启 DSH 服务
-────────────
+开机自启动  ✓
+────────────────
 强行终止
 退出
 ```
 
-菜单使用 Segoe Fluent Icons，并沿用 Windows 的浅色/深色主题。`MicaBackdrop` 直接挂在 WinUI 3 `Window` 上，窗口本体由 `OverlappedPresenter` 去掉标题栏和边框，DWM 边框颜色设为 `NONE`，因此不会再叠加旧版的粗描边。
+- **单击托盘图标 / 双击**:直接打开页面
+- **余额**:启动时、每次开菜单、每 60 秒各刷一次
+- **告警阈值**(可改):今日花费 ¥15 / 余额 ¥10 / ¥5 / ¥1
+- **开机自启**:写 Run 键 + 启动文件夹,并带 `--no-browser`,开机只驻留托盘
 
-动画不再使用 `AnimateWindow`。窗口显示前先停止旧动画并将菜单内容隐藏，禁用一个 DWM 隐式过渡，然后仅由 WinUI Composition 播放一次 `Offset +16px -> 0` 与透明度过渡。关闭菜单、重新打开菜单和点击菜单项都会递增动画序号，确保过期动画不会重复播放。
+### 命令行参数
 
-菜单项点击后会先关闭菜单，再执行打开页面、重启、终止或退出动作。程序同时监听前台窗口和全局鼠标按键，点击其他应用、任务栏或桌面都会关闭菜单。
+| 参数 | 作用 |
+|------|------|
+| `--no-browser` / `--silent` / `--tray` / `--startup` | 静默自启:起服务、驻留托盘,但不自动弹浏览器 |
 
-## 通知
+---
 
-通知只使用 Windows 原生托盘气泡 `Shell_NotifyIcon`。程序依次尝试大图标自定义气泡、普通自定义图标气泡和 Windows 默认信息气泡，自绘 WinUI 通知窗不会参与显示。
+## 常见问题
 
-通知注册状态会写入：
+**双击没反应?**
+先看有没有弹 UAC —— 启动器清单里声明了 `requireAdministrator`,拒绝提权就起不来。
+如果弹的是「没有找到 Node.js」或「没有找到 DeepSeek Harness 本体」,那就是环境没配好,
+对话框里会写明该怎么办。日志在 `%LOCALAPPDATA%\DeepSeekHarness\launcher.log`。
 
-```text
-G:\DeepSeek DSH\logs\launcher.log
-```
+**托盘有图标,但"打开页面"打不开 / 显示 `dsh web authentication required`?**
+DSH 的网页地址带一个访问 token,而且这个地址是服务起来之后过几秒才写出来的。
+启动器会等它(最多 25 秒),拿不到就不会自动开页面;你点「打开页面」时会再读一次。
+如果还是提示拿不到地址,用「重启 DSH 服务」重来一次,或稍等几秒再点。
+想手动确认:`type <你的DSH目录>\logs\last-url.txt`,把那一整行(带 `?token=`)贴进浏览器。
 
-示例日志：
+**托盘右键菜单里的图标是空心方框?**
+那是字体缺失。菜单图标优先用 Windows 11 的 `Segoe Fluent Icons`,系统里没有就自动退到
+Windows 10 自带的 `Segoe MDL2 Assets`。两套字体的字形是兼容的,理论上不会缺图标 ——
+如果你确实看到方框,把 `%LOCALAPPDATA%\DeepSeekHarness\launcher.log` 发过来。
 
-```text
-Windows App SDK notifications registered=True, setting=Unsupported
-```
+**提示 SmartScreen 已阻止?**
+没做代码签名,首次运行会拦一下:点"更多信息" → "仍要运行"。
 
-`setting=Unsupported` 表示系统不允许当前未打包/提权进程直接显示 Windows 系统 Toast，不影响托盘气泡。
+**换了 DSH 目录就不认了?**
+删掉 `%LOCALAPPDATA%\DeepSeekHarness\launcher-path.txt`,或在 `launcher.json` 里写明 `dshRoot`。
 
-Windows 的“专注助手”、系统通知设置或组策略仍可能在系统层面隐藏通知，这是 Windows 的全局行为。
+**和 RTSS / MSI Afterburner 冲突?**
+这俩会往图形进程里注入钩子,已知会让托盘菜单偶尔闪烁。游戏时无所谓,平时可以关掉注入。
 
-右键菜单的 WinUI `MenuFlyout` 使用一个完全透明的 1×1 锚点窗口，因此不会再出现鼠标右下角的黑色方块。
+---
 
-## 余额与告警
-
-菜单顶部显示当前余额。刷新时机：
-
-- 程序启动
-- 每次打开托盘菜单
-- 每 60 秒自动刷新
-
-点击余额项可修改 API Key，设置窗口使用 WinUI 3 控件。Key 使用当前用户 DPAPI 加密保存：
-
-```text
-G:\DeepSeek DSH\.dsh\launcher-api-key.bin
-```
-
-程序不会直接改写 DSH 的 `.credentials.yaml`。
-
-默认告警阈值：
-
-```text
-今日花费达到 ¥15.00
-余额降至 ¥10.00
-余额降至 ¥5.00
-余额降至 ¥1.00
-```
-
-告警状态保存在：
-
-```text
-G:\DeepSeek DSH\.dsh\launcher-alerts.json
-```
-
-## 管理员权限
-
-管理员权限由：
-
-```text
-source\app.manifest
-source\RuntimeBootstrap.manifest
-```
-
-中的以下节点声明：
-
-```xml
-<requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
-```
-
-引导程序和主程序都声明管理员权限。引导程序以管理员令牌启动主程序后，Node 子进程继续继承管理员令牌。
-
-检查当前服务是否由管理员启动，可查看日志：
-
-```text
-Launcher started. Version 1.3.6, elevated=True
-Started elevated node process <PID>.
-```
-
-## 构建
-
-本机 SDK 位置：
-
-```text
-G:\DeepSeek DSH\.tools\dotnet\dotnet.exe
-```
-
-NuGet 缓存位置：
-
-```text
-G:\DeepSeek DSH\.nuget-packages
-```
-
-构建命令：
+## 从源码构建
 
 ```powershell
-Set-Location 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter\source'
-.\build-winui.ps1
+# 需要 .NET 8 SDK + Windows App SDK 1.8
+cd source
+.\build-winui.ps1 -OutputDirectory .\dist-1.3.10
+
+# 外层引导程序(.NET Framework,声明 requireAdministrator)
+& 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe' /nologo /target:winexe /platform:x64 /optimize+ `
+  "/win32icon:.\DeepSeekHarness.ico" "/win32manifest:.\RuntimeBootstrap.manifest" `
+  "/out:.\dist-1.3.10\DeepSeek Harness.exe" .\RuntimeBootstrap.cs
 ```
 
-输出：
+一键发版(编译 + 打包 + 算哈希 + 更新 `manifest.json`):
 
-```text
-source\dist\
-├─ DeepSeek Harness.exe
-├─ DeepSeek Harness.Core.exe
-└─ 其他 .NET / Windows App SDK 依赖 DLL
+```powershell
+.\release.ps1
 ```
 
-当前使用框架依赖发布：
+产物自检(查关键文件、运行库、有没有写死开发机路径、有没有 `.old` 残留):
 
-```xml
-<WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
-<SelfContained>false</SelfContained>
-<PublishSingleFile>false</PublishSingleFile>
+```powershell
+.\verify.ps1
 ```
 
-完整目录约 `37.16 MiB`，不会再因为单文件自解压向 `%TEMP%\.net` 写入约 282 MiB 的缓存。
+发版完整流程见 [`RELEASE.md`](RELEASE.md)。
 
-## 运行库缺失提示
+---
 
-引导程序会检查：
+## 目录结构
 
-```text
-.NET 8 Desktop Runtime
-Windows App Runtime 1.8，最低版本 8000.946.1701.0
+```
+DeepSeek Starter\
+├─ source\
+│  ├─ WinUIProgram.cs        主程序:托盘、菜单、服务管理、余额(全在这)
+│  ├─ LauncherLocator.cs     找 DSH 根目录和 node.exe
+│  ├─ BalanceSupport.cs      余额查询与 API Key 存储
+│  ├─ BalanceAlerts.cs       余额告警阈值
+│  ├─ RuntimeBootstrap.cs    外层引导程序(检查运行库后拉起主程序)
+│  ├─ build-winui.ps1        构建脚本
+│  └─ Program.cs             旧 WinForms 版尸体,不参与编译
+├─ manifest.json             给 DSH Installer 读的发布清单
+├─ release.ps1               一键发版
+├─ verify.ps1                产物自检
+└─ RELEASE.md                发版与分发说明
 ```
 
-缺失时显示原生 MessageBox，并提供官方下载地址：
+---
 
-```text
-.NET 8:
-https://dotnet.microsoft.com/download/dotnet/8.0
+## 与其他项目的关系
 
-Windows App Runtime 1.8:
-https://aka.ms/windowsappsdk/1.8/1.8.260804001/windowsappruntimeinstall-x64.exe
+| 项目 | 关系 |
+|------|------|
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | 被启动的本体 |
+| **DSH Installer** | 安装程序,读本仓库的 `manifest.json` 下载启动器并部署 |
+| RivaTuner / RTSS | 无关系,但注入图形钩子时可能互相影响 |
+
+启动器不打包进安装程序,安装程序每次现下最新版 —— 所以**这个仓库发新版,装机的人立刻就能拿到**。
+
+---
+
+## English
+
+**A Windows tray launcher for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).**
+Double-click once, the DSH web service comes up and lives in your tray with your balance on hand.
+
+### Features
+
+- One-click start: finds your DSH folder and node automatically, then launches the service
+- Runs elevated (the DSH service inherits the admin token)
+- Native tray menu: Mica backdrop, Segoe Fluent icons, Win11 loading animation
+- Balance display with threshold alerts
+- API key stored locally with DPAPI
+- Toggle "start with Windows" right from the menu (silent, no browser popup)
+
+### Requirements
+
+- **Windows 10 1809 (build 17763) or later** — WinUI 3 hard limit
+- **.NET 8 Desktop Runtime** and **Windows App Runtime 1.8**
+- A working local DSH install plus node
+
+### Install
+
+Grab `DeepSeekHarness-<version>.zip` from
+[Releases](https://github.com/YunxiRamito/DSH-Launcher/releases) and extract it into
+`<your DSH root>\DeepSeek Harness\`, then run `DeepSeek Harness.exe`.
+
+The launcher locates DSH by checking `DSH_ROOT`, then a sibling `launcher.json`,
+then walking up from its own folder looking for `node_modules\@deepseek-ai\dsh\lib\bin.js`.
+
+### Menu
+
+```
+Balance: ¥xx.xx        (click to set your API key)
+────────────
+Open page
+Restart DSH service
+Start with Windows  ✓
+────────────
+Force stop
+Quit
 ```
 
-用户选择“是”后，程序会依次打开缺失运行库的下载页面。
+### Command line
 
-## 日志
+| Argument | Effect |
+|----------|--------|
+| `--no-browser` / `--silent` / `--tray` / `--startup` | Start the service and stay in the tray without opening a browser |
 
-主日志：
+### Build
 
-```text
-G:\DeepSeek DSH\logs\launcher.log
+```powershell
+cd source
+.\build-winui.ps1 -OutputDirectory .\dist-1.3.10
 ```
 
-最近一次 Token URL：
+Release automation: `.\release.ps1`. Artifact self-check: `.\verify.ps1`.
+See [`RELEASE.md`](RELEASE.md) for the full release flow.
 
-```text
-G:\DeepSeek DSH\logs\last-url.txt
-```
+### License
 
-日志会隐藏 URL 中的 Token；API Key 不会写入日志。
-
-## 旧版源码
-
-早期 .NET Framework/WinForms 编译产物保留在：
-
-```text
-source\legacy
-```
-
-当前构建不会编译旧版 `Program.cs`。
-
-项目仍保留 `Microsoft.WindowsDesktop.App.WindowsForms` 框架引用，用于兼容旧代码中的托盘气泡、`MessageBox` 和 WinForms 应用 API，但主启动器实际运行在 WinUI 3 上。当前版本要求 Windows App Runtime 1.8，最低支持 Windows 10 1809；Windows 7、8 和 8.1 不在当前 WinUI 3 版本的运行范围内。如果确实需要这些旧系统，需要单独维护一个纯 WinForms 启动器分支。
+MIT
