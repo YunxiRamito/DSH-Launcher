@@ -28,13 +28,6 @@ namespace DeepSeekHarnessLauncher
         private const string Branch = "main";
         private const string ManifestFile = "manifest.json";
 
-        /// <summary>GitHub 资产在国内的加速前缀,按顺序试。</summary>
-        private static readonly string[] GitHubProxies = new string[]
-        {
-            "https://ghfast.top/",
-            "https://ghproxy.net/",
-        };
-
         private const int FetchTimeoutMs = 20000;
         private const int DownloadTimeoutMs = 600000;
 
@@ -52,19 +45,48 @@ namespace DeepSeekHarnessLauncher
                 return configured.ToArray();
             }
 
-            // 为什么不像图片 CDN 那样用 jsDelivr 当首选:
-            // jsDelivr 对这条路径有大约 12 小时缓存,旧客户端查新版时请求的还是同一个路径,
-            // 缓存里没有新版本,就会误判成"已经最新"。
+            // 清单要"实时",但 raw.githubusercontent 在国内经常直接超时,
+            // jsDelivr 也可能因为 TLS 中间设备连不上。所以准备一长串候选,挨个试:
+            //   1. raw(带时间戳破缓存)        国外/网络好的时候最快
+            //   2. GitHub 加速镜像(套前缀)     国内主力
+            //   3. jsDelivr                    兜底
+            //   4. GitHub API 的 releases/latest(最后手段,官方接口,一般不被拦)
             //
-            // 而且 raw.githubusercontent 也不是实时的 —— 它背后是 Fastly,同样会缓存几分钟。
-            // 所以两个源都要带一个每次都不同的查询参数来打破缓存(CDN 把 query 算进缓存键)。
+            // 每个候选都带时间戳:raw 和 jsDelivr 背后都有 CDN 缓存,
+            // 不换 URL 就会读到旧清单,误判成"已经最新"。
             string nonce = DateTime.UtcNow.Ticks.ToString();
-            string raw = "https://raw.githubusercontent.com/" + Repository + "/" + Branch + "/" + ManifestFile + "?t=" + nonce;
+            string rawPath = Repository + "/" + Branch + "/" + ManifestFile;
+            string raw = "https://raw.githubusercontent.com/" + rawPath + "?t=" + nonce;
             string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile + "?t=" + nonce;
 
-            // 真正的加速放在下载那一侧:zip 资产内容不可变,套镜像前缀没有缓存问题。
-            return new string[] { raw, jsdelivr };
+            List<string> urls = new List<string>();
+
+            // 这个顺序是实测出来的(2026-09-19 本机):
+            //   api.github.com       600ms  通
+            //   ghproxy.net         1.1s   通
+            //   ghfast.top          超时
+            //   raw.githubusercontent 超时  jsDelivr SSL 失败
+            // 所以官方 API 放最前,它给的 releases/latest 结构在 ParseGitHubRelease 里转换。
+            urls.Add("https://api.github.com/repos/" + Repository + "/releases/latest");
+
+            for (int index = 0; index < GitHubPrefixes.Length; index++)
+            {
+                urls.Add(GitHubPrefixes[index] + raw);
+            }
+
+            urls.Add(raw);
+            urls.Add(jsdelivr);
+
+            return urls.ToArray();
         }
+
+        /// <summary>GitHub 加速前缀,按实测可用性排序。</summary>
+        private static readonly string[] GitHubPrefixes = new string[]
+        {
+            "https://ghproxy.net/",
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+        };
 
         /// <summary>从同目录 launcher.json 里读 updateManifestUrls(字符串或数组都认)。</summary>
         private static List<string> ReadConfiguredManifestUrls()
@@ -157,7 +179,77 @@ namespace DeepSeekHarnessLauncher
             }
 
             UpdateManifest manifest = ParseManifest(json, out error);
+            if (manifest == null && !string.IsNullOrEmpty(json) && json.IndexOf("\"tag_name\"", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // 走到 GitHub API 的 releases/latest 了:那个返回的是 GitHub 自己的结构,
+                // 不是我们的清单格式,得转换一下
+                manifest = ParseGitHubRelease(json, out error);
+            }
+
             return manifest;
+        }
+
+        /// <summary>
+        /// 把 GitHub API 的 releases/latest 响应转成我们的清单结构。
+        /// 这是最后一道兜底:官方 api.github.com 一般不会被中间设备拦。
+        /// </summary>
+        internal static UpdateManifest ParseGitHubRelease(string json, out string error)
+        {
+            error = null;
+
+            string tag = MatchString(json, "tag_name");
+            if (string.IsNullOrEmpty(tag))
+            {
+                error = "GitHub 响应里没有 tag_name";
+                return null;
+            }
+
+            UpdateManifest manifest = new UpdateManifest();
+            manifest.Version = tag.TrimStart('v', 'V');
+
+            // 找出资产里那个 zip
+            MatchCollection names = Regex.Matches(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
+            for (int index = 0; index < names.Count; index++)
+            {
+                string url = names[index].Groups[1].Value.Replace("\\/", "/");
+                if (url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    manifest.Urls.AddRange(Mirrorize(url));
+                }
+            }
+
+            Match body = Regex.Match(json, "\"body\"\\s*:\\s*\"(?<body>(?:[^\"\\\\]|\\\\.)*)\"", RegexOptions.Singleline);
+            if (body.Success)
+            {
+                manifest.Notes = body.Groups["body"].Value.Replace("\\n", "\n").Replace("\\r", string.Empty).Replace("\\\"", "\"").Replace("\\\\", "\\");
+            }
+
+            if (manifest.Urls.Count == 0)
+            {
+                error = "GitHub Release 里没有 zip 资产";
+                return null;
+            }
+
+            InstallLoggerLine("清单来自 GitHub API: " + manifest.Version);
+            return manifest;
+        }
+
+        private static void InstallLoggerLine(string message)
+        {
+            try
+            {
+                string directory = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness");
+                Directory.CreateDirectory(directory);
+                File.AppendAllText(
+                    Path.Combine(directory, "launcher.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  [update] " + message + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch
+            {
+            }
         }
 
         internal static UpdateManifest ParseManifest(string json, out string error)
@@ -218,11 +310,7 @@ namespace DeepSeekHarnessLauncher
             return manifest;
         }
 
-        /// <summary>
-        /// 给 GitHub 资产地址配上加速前缀:只有在中国大陆才套 CDN 加速,
-        /// 在国外直接用 GitHub 原始地址(反而更快,也少一跳)。
-        /// 与安装器里的判断保持一致。
-        /// </summary>
+        /// <summary>给 GitHub 资产地址配上加速前缀:只有在中国大陆才套 CDN 加速。</summary>
         private static List<string> Mirrorize(string assetUrl)
         {
             List<string> urls = new List<string>();
@@ -233,9 +321,9 @@ namespace DeepSeekHarnessLauncher
 
             if (RegionInfo.IsChinaMainland)
             {
-                for (int index = 0; index < GitHubProxies.Length; index++)
+                for (int index = 0; index < GitHubPrefixes.Length; index++)
                 {
-                    urls.Add(GitHubProxies[index] + assetUrl);
+                    urls.Add(GitHubPrefixes[index] + assetUrl);
                 }
             }
 
@@ -243,8 +331,7 @@ namespace DeepSeekHarnessLauncher
 
             if (!RegionInfo.IsChinaMainland)
             {
-                // 国外也留一条加速兜底,GitHub 抽风时能救一下
-                urls.Add(GitHubProxies[0] + assetUrl);
+                urls.Add("https://ghproxy.net/" + assetUrl);
             }
 
             return urls;

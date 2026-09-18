@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.19";
+        public const string Version = "1.3.20";
         public const int TrayIconId = 1;
     }
 
@@ -1329,18 +1329,45 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
-        /// <summary>尝试显示进度窗。失败只记日志,不打断更新。</summary>
+        /// <summary>
+        /// 尝试显示进度窗。失败只记日志,不打断更新。
+        ///
+        /// 关键:WinUI 窗口必须在 UI 线程上创建。更新跑在后台线程,
+        /// 直接 new 会拿到 RPC_E_WRONG_THREAD(0x8001010E)。
+        /// 所以排到 DispatcherQueue 上执行,并等它做完再继续。
+        /// </summary>
         private void ShowUpdateWindow()
         {
             try
             {
-                _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
-                _updateWindow.Show();
-                UpdateWindow("正在检查更新…", "正在读取版本清单", -1);
+                using (ManualResetEventSlim done = new ManualResetEventSlim(false))
+                {
+                    InvokeOnUi(delegate()
+                    {
+                        try
+                        {
+                            _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
+                            _updateWindow.Show();
+                            _updateWindow.Update("正在检查更新…", "正在读取版本清单", -1);
+                        }
+                        catch (Exception exception)
+                        {
+                            WriteLog("进度窗创建失败(继续无窗更新): " + DescribeException(exception));
+                            _updateWindow = null;
+                        }
+                        finally
+                        {
+                            done.Set();
+                        }
+                    });
+
+                    // 最多等 8 秒,别把更新流程拖住
+                    done.Wait(8000);
+                }
             }
             catch (Exception exception)
             {
-                WriteLog("进度窗创建失败(继续无窗更新): " + DescribeException(exception));
+                WriteLog("进度窗调度失败(继续无窗更新): " + DescribeException(exception));
                 _updateWindow = null;
             }
         }

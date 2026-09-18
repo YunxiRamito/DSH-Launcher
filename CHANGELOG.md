@@ -1,9 +1,27 @@
-# 更新日志
+﻿# 更新日志
 
 发版时 `release.ps1` 会自动抓取对应版本的小节,写进 `manifest.json` 的 `notes`,
 `publish-release.ps1` 再把它作为 GitHub Release 的正文。所以**发版前先在这里写好这一版**。
 
 格式固定:`## 1.3.18` 开头,下一行到下一个 `## ` 之间就是这一版的说明。
+
+---
+
+## 1.3.20
+
+**修复进度窗无法创建**
+
+- WinUI 窗口必须在 UI 线程创建。更新跑在后台线程,直接 new 会拿到
+  `RPC_E_WRONG_THREAD (0x8001010E)`,进度窗一直弹不出来
+- 现在窗口的创建与刷新都排到 UI 线程执行,并等它完成再继续
+
+**更新源按国内实测重排**
+
+- 实测结果(2026-09-19):`api.github.com` 600ms 通、`ghproxy.net` 1.1s 通、
+  `ghfast.top` 超时、`raw.githubusercontent` 超时、jsDelivr SSL 失败
+- 清单源改为官方 API 优先(附带把 releases/latest 结构转换成内部清单格式),
+  再依次退到镜像、raw、jsDelivr
+- zip 资产的下载同样按这个顺序套加速前缀
 
 ---
 
