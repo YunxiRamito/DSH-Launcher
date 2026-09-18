@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.13";
+        public const string Version = "1.3.14";
         public const string Url = "http://127.0.0.1:8787/";
         public const int Port = 8787;
         public const int TrayIconId = 1;
@@ -519,6 +519,9 @@ namespace DeepSeekHarnessLauncher
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string RunValueName = "DeepSeek Harness";
         private const string ShortcutName = "DeepSeek Harness.lnk";
+
+        /// <summary>开机自启用的计划任务名(1.3.14 起自启走计划任务,不再用 Run 键)。</summary>
+        private const string TaskName = "DeepSeekHarnessAutostart";
         private const string ApproveKeyPath =
             @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
 
@@ -589,63 +592,72 @@ namespace DeepSeekHarnessLauncher
                 + Program.BuildStartupArguments();
         }
 
+        /// <summary>
+        /// 自启是不是开着。
+        ///
+        /// 只看计划任务 —— 从 1.3.14 起自启改成走计划任务了。
+        /// 老的 Run 键 / 启动文件夹在 <see cref="CleanupLegacyAutostart"/> 里清掉。
+        /// </summary>
         public static bool IsEnabled()
         {
-            try
-            {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKeyPath))
-                {
-                    if (key != null && key.GetValue(RunValueName) != null)
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return File.Exists(ShortcutPath);
+            return TaskExists();
         }
 
+        /// <summary>
+        /// 打开自启。
+        ///
+        /// 为什么不用 Run 键或启动文件夹:启动器的清单声明了 requireAdministrator,
+        /// 而 Windows 在登录阶段不弹 UAC,那两个位置拉起来的进程会直接被拦掉,自启等于没写。
+        /// 计划任务可以用"最高权限运行",由任务计划服务拿管理员令牌启动,不需要 UAC 提示。
+        /// </summary>
         public static bool Enable()
         {
-            bool runKeyWritten = false;
-            bool shortcutWritten = false;
+            string launcher = GetLauncherPath();
+            string arguments = Program.BuildStartupArguments();
+            bool created = false;
 
             try
             {
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKeyPath))
-                {
-                    key.SetValue(RunValueName, BuildRunCommand(), RegistryValueKind.String);
-                }
-
-                runKeyWritten = true;
+                string script = BuildRegisterTaskScript(launcher, arguments);
+                string output = PowerShellRunner.Run(script, 30000);
+                created = TaskExists();
+                Log("注册计划任务 " + TaskName + " => " + created.ToString()
+                    + " output=" + (output == null ? "(null)" : output.Trim()));
             }
             catch (Exception exception)
             {
-                Log("写 Run 键失败: " + exception.Message);
+                Log("注册计划任务失败: " + exception.Message);
             }
 
-            try
+            if (created)
             {
-                CreateShortcut();
-                shortcutWritten = true;
-            }
-            catch (Exception exception)
-            {
-                Log("写启动文件夹失败: " + exception.Message);
+                CleanupLegacyAutostart();
             }
 
-            Log(
-                "开机自启启用 runKey=" + runKeyWritten.ToString()
-                + " shortcut=" + shortcutWritten.ToString()
-                + " command=" + BuildRunCommand());
-
-            return runKeyWritten || shortcutWritten;
+            return created;
         }
 
         public static bool Disable()
+        {
+            try
+            {
+                string script =
+                    "$ErrorActionPreference='SilentlyContinue';" +
+                    "Unregister-ScheduledTask -TaskName '" + TaskName + "' -Confirm:$false";
+                PowerShellRunner.Run(script, 20000);
+            }
+            catch (Exception exception)
+            {
+                Log("删计划任务失败: " + exception.Message);
+            }
+
+            CleanupLegacyAutostart();
+            Log("开机自启已关闭,任务还在: " + TaskExists().ToString());
+            return !TaskExists();
+        }
+
+        /// <summary>1.3.13 及以前写下的 Run 键和启动文件夹快捷方式,留着会重复启动。</summary>
+        private static void CleanupLegacyAutostart()
         {
             try
             {
@@ -654,29 +666,79 @@ namespace DeepSeekHarnessLauncher
                     if (key != null && key.GetValue(RunValueName) != null)
                     {
                         key.DeleteValue(RunValueName, false);
+                        Log("已清理旧的 Run 键自启项");
                     }
                 }
             }
             catch (Exception exception)
             {
-                Log("删 Run 键失败: " + exception.Message);
+                Log("清 Run 键失败: " + exception.Message);
             }
 
             try
             {
-                string path = ShortcutPath;
-                if (File.Exists(path))
+                string shortcut = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Startup),
+                    ShortcutName);
+                if (File.Exists(shortcut))
                 {
-                    File.Delete(path);
+                    File.Delete(shortcut);
+                    Log("已清理旧的启动文件夹快捷方式");
                 }
             }
             catch (Exception exception)
             {
-                Log("删启动文件夹快捷方式失败: " + exception.Message);
+                Log("清启动文件夹失败: " + exception.Message);
+            }
+        }
+
+        private static bool TaskExists()
+        {
+            try
+            {
+                string taskFile = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                    "System32", "Tasks", TaskName);
+                return File.Exists(taskFile);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 生成注册计划任务的 PowerShell 脚本。
+        /// 用 ScheduledTasks 模块而不是 schtasks.exe —— 后者对中文用户名的编码处理很糟。
+        /// </summary>
+        private static string BuildRegisterTaskScript(string launcher, string arguments)
+        {
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            builder.Append("$ErrorActionPreference='Stop';");
+            builder.Append("$user = \"$env:USERDOMAIN\\$env:USERNAME\";");
+            builder.Append("$action = New-ScheduledTaskAction -Execute " + PsQuote(launcher));
+            if (!string.IsNullOrEmpty(arguments))
+            {
+                builder.Append(" -Argument " + PsQuote(arguments));
             }
 
-            Log("开机自启已关闭。");
-            return !IsEnabled();
+            builder.Append(";");
+            builder.Append("$trigger = New-ScheduledTaskTrigger -AtLogon -User $user;");
+            builder.Append("$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest;");
+            builder.Append("$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0);");
+            builder.Append("Register-ScheduledTask -TaskName '" + TaskName + "' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null;");
+            builder.Append("Write-Output 'registered'");
+            return builder.ToString();
+        }
+
+        private static string PsQuote(string value)
+        {
+            if (value == null)
+            {
+                return "''";
+            }
+
+            return "'" + value.Replace("'", "''") + "'";
         }
 
         private static void CreateShortcut()
