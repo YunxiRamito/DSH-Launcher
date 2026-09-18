@@ -144,6 +144,12 @@ $json = $manifest | ConvertTo-Json -Depth 6
 [System.IO.File]::WriteAllText($ManifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Ok "已写入: $ManifestPath"
 
+# 清单也在 jsDelivr 上给国内加速,而 jsDelivr 对固定路径有约 12 小时缓存。
+# 再写一份带版本号的路径,URL 里带上版本号就永远是新的,不受缓存影响。
+$versionedManifest = Join-Path $PSScriptRoot ("manifest-" + $version + ".json")
+[System.IO.File]::WriteAllText($versionedManifest, $json, (New-Object System.Text.UTF8Encoding($false)))
+Ok "带版本号副本: manifest-$version.json(给 jsDelivr 绕缓存用)"
+
 Say ''
 Say '----------------------------------------'
 Say '接下来手动执行(或者用 GitHub 网页发 release):'

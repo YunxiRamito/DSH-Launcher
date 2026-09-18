@@ -52,13 +52,17 @@ namespace DeepSeekHarnessLauncher
                 return configured.ToArray();
             }
 
-            string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile;
+            // 为什么不像图片 CDN 那样用 jsDelivr 当首选:
+            // jsDelivr 对我们这条 jsdelivr 路径有大约 12 小时缓存,而旧客户端查新版时
+            // 请求的还是同一个路径,缓存里没有新版本,就会误判成"已经最新"。
+            // 所以清单一律走实时源(raw),jsDelivr 只当兜底;
+            // 缓存参数没有任何作用(jsDelivr 忽略 query),别自欺欺人。
+            //
+            // 真正的加速在下载那一侧:zip 资产是不可变的,套镜像前缀没有缓存问题。
             string raw = "https://raw.githubusercontent.com/" + Repository + "/" + Branch + "/" + ManifestFile;
+            string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile;
 
-            // 国内 jsDelivr 更快,国外 raw 更快
-            return RegionInfo.IsChinaMainland
-                ? new string[] { jsdelivr, raw }
-                : new string[] { raw, jsdelivr };
+            return new string[] { raw, jsdelivr };
         }
 
         /// <summary>从同目录 launcher.json 里读 updateManifestUrls(字符串或数组都认)。</summary>

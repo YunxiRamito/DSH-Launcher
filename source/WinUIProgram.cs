@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.16";
+        public const string Version = "1.3.18";
         public const int TrayIconId = 1;
     }
 
@@ -3264,9 +3264,14 @@ namespace DeepSeekHarnessLauncher
     internal sealed class WinUICompositionTrayMenu
     {
         private const int MenuWidth = 260;
-        private const int MenuHeight = 260;
         private const int AnimationMilliseconds = 180;
         private const int AnimationOffset = 16;
+
+        /// <summary>菜单内容面板。高度靠量它得出来,不再写死。</summary>
+        private readonly StackPanel _itemsPanel;
+
+        /// <summary>当前菜单实际高度(按内容量出来的),定位时用。</summary>
+        private int _menuHeight = 320;
 
         private readonly WinUIWindow _window;
         private readonly Border _surface;
@@ -3364,19 +3369,19 @@ namespace DeepSeekHarnessLauncher
                 ExitClicked();
             };
 
-            StackPanel items = new StackPanel
+            _itemsPanel = new StackPanel
             {
                 Spacing = 2
             };
-            items.Children.Add(_balanceItem);
-            items.Children.Add(CreateSeparator());
-            items.Children.Add(_openItem);
-            items.Children.Add(_restartItem);
-            items.Children.Add(_startupItem);
-            items.Children.Add(_updateItem);
-            items.Children.Add(CreateSeparator());
-            items.Children.Add(_forceStopItem);
-            items.Children.Add(_exitItem);
+            _itemsPanel.Children.Add(_balanceItem);
+            _itemsPanel.Children.Add(CreateSeparator());
+            _itemsPanel.Children.Add(_openItem);
+            _itemsPanel.Children.Add(_restartItem);
+            _itemsPanel.Children.Add(_startupItem);
+            _itemsPanel.Children.Add(_updateItem);
+            _itemsPanel.Children.Add(CreateSeparator());
+            _itemsPanel.Children.Add(_forceStopItem);
+            _itemsPanel.Children.Add(_exitItem);
 
             _surface = new Border
             {
@@ -3385,7 +3390,7 @@ namespace DeepSeekHarnessLauncher
                 CornerRadius = new CornerRadius(8),
                 BorderThickness = new Thickness(0),
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                Child = items
+                Child = _itemsPanel
             };
             _window.Content = _surface;
             _window.AppWindow.Show();
@@ -3401,16 +3406,40 @@ namespace DeepSeekHarnessLauncher
         public event Action ForceStopClicked = delegate { };
         public event Action ExitClicked = delegate { };
 
+        /// <summary>
+        /// 量一下菜单真实高度。
+        /// 行数以后可能变(加项、改字号、系统缩放),写死高度迟早会把最后一项裁掉,
+        /// 所以直接问 XAML 内容要多高。
+        /// </summary>
+        private void MeasureMenuHeight()
+        {
+            try
+            {
+                double available = MenuWidth - 10; // 减去 Border 左右内边距
+                _itemsPanel.Measure(new Windows.Foundation.Size(available, double.PositiveInfinity));
+                double content = _itemsPanel.DesiredSize.Height;
+                if (content > 10)
+                {
+                    // 加回 Border 上下内边距,再留一点余量,免得最后一行被切
+                    _menuHeight = (int)Math.Ceiling(content) + 12;
+                }
+            }
+            catch
+            {
+            }
+        }
+
         public void ShowAtCursor()
         {
             PrepareForOpen();
+            MeasureMenuHeight();
 
             NativeMethods.POINT cursor;
             NativeMethods.GetCursorPos(out cursor);
             uint dpi = NativeMethods.GetDpiForWindow(_hostHandle);
             double scale = dpi > 0 ? dpi / 96.0 : 1.0;
             int windowWidth = (int)Math.Round(MenuWidth * scale);
-            int windowHeight = (int)Math.Round(MenuHeight * scale);
+            int windowHeight = (int)Math.Round(_menuHeight * scale);
             Screen screen = Screen.FromPoint(new System.Drawing.Point(cursor.X, cursor.Y));
             System.Drawing.Rectangle workArea = screen.WorkingArea;
             int x = Math.Max(
