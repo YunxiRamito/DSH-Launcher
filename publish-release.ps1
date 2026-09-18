@@ -6,7 +6,8 @@ param(
     [string]$Version,
     [string]$Token,
     [string]$Repository = 'YunxiRamito/DSH-Launcher',
-    [switch]$SkipAsset
+    [switch]$SkipAsset,
+    [switch]$Commit   # 顺手把代码/manifest 提交并推 tag(推荐带上)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,6 +139,33 @@ try {
     Ok "可访问: HTTP $($head.StatusCode)"
 } catch {
     Warn "还访问不到(刚上传可能要等几秒): $($_.Exception.Message)"
+}
+
+# 5) 提交并推 tag(这一步以前漏了,导致仓库里的 manifest.json 落后于实际发布版本,
+#    客户端因此查不到新版 —— 自更新直接失效)
+if ($Commit) {
+    Say ''
+    Step '提交并推送'
+    Push-Location $Root
+    try {
+        git add -A
+        $msg = "release: v$Version"
+        git -c user.name="YunxiRamito" -c user.email="killmasterags@gmail.com" commit -m $msg 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
+        git push origin main 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
+
+        git tag -d $Tag 2>&1 | Out-Null
+        git tag $Tag
+        git push --force origin $Tag 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
+        Ok "已推送 main 与 $Tag"
+    } catch {
+        Warn "git 操作失败: $($_.Exception.Message)"
+    } finally {
+        Pop-Location
+    }
+} else {
+    Say ''
+    Warn '提醒: 没有加 -Commit,代码与 manifest.json 还没提交。'
+    Warn '      不提交的话客户端读到的清单是旧的,自更新会失效。'
 }
 
 Say ''

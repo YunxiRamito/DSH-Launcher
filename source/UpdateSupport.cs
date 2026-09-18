@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -29,7 +29,7 @@ namespace DeepSeekHarnessLauncher
         private const string ManifestFile = "manifest.json";
 
         private const int FetchTimeoutMs = 20000;
-        private const int DownloadTimeoutMs = 600000;
+        private const int DownloadTimeoutMs = 180000;
 
         // ---------------------------------------------------------------- 清单
 
@@ -699,7 +699,7 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
-        /// <summary>WebClient 的同步下载没法设超时,套一层。</summary>
+        /// <summary>WebClient 的同步下载没法直接设超时,套一层。</summary>
         private sealed class TimeoutWebClient : WebClient
         {
             private readonly int _timeoutMs;
@@ -714,7 +714,9 @@ namespace DeepSeekHarnessLauncher
                 WebRequest request = base.GetWebRequest(address);
                 if (request != null)
                 {
-                    request.Timeout = _timeoutMs;
+                    // 连接超时压短一点:某个镜像连不上时要赶紧跳到下一个,
+                    // 别让用户对着进度条干等好几分钟。
+                    request.Timeout = ConnectTimeoutMs;
                     HttpWebRequest http = request as HttpWebRequest;
                     if (http != null)
                     {
@@ -725,5 +727,8 @@ namespace DeepSeekHarnessLauncher
                 return request;
             }
         }
+
+        /// <summary>连不上就尽快换源(毫秒)。</summary>
+        private const int ConnectTimeoutMs = 15000;
     }
 }

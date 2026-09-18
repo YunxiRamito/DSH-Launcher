@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.20";
+        public const string Version = "1.3.21";
         public const int TrayIconId = 1;
     }
 

@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.3.20.0" name="DeepSeek.Harness.Launcher" processorArchitecture="*" type="win32" />
+  <assemblyIdentity version="1.3.21.0" name="DeepSeek.Harness.Launcher" processorArchitecture="*" type="win32" />
   <description>这是由高性能萝卜子编写的启动高性能萝卜子的启动器喵</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
