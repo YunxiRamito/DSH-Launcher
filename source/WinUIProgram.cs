@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -41,8 +41,6 @@ namespace DeepSeekHarnessLauncher
     {
         public const string Title = "DeepSeek Harness";
         public const string Version = "1.3.16";
-        public const string Url = "http://127.0.0.1:8787/";
-        public const int Port = 8787;
         public const int TrayIconId = 1;
     }
 
@@ -412,7 +410,7 @@ namespace DeepSeekHarnessLauncher
             {
                 if (String.IsNullOrEmpty(url))
                 {
-                    url = Constants.Url;
+                    url = BuildServiceUrl(ServicePort);
                 }
 
                 string explorer = Path.Combine(
@@ -443,6 +441,41 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
+        /// <summary>
+        /// DSH 服务端口。每台机器可能不一样(别人手动启动时可能带了 --port),
+        /// 所以启动时探测一次,之后到处都用这个值,不再写死 8787。
+        /// </summary>
+        private static int _servicePort = DshPortResolver.DefaultPort;
+
+        internal static int ServicePort
+        {
+            get { return _servicePort; }
+            set
+            {
+                if (value > 0 && value <= 65535)
+                {
+                    _servicePort = value;
+                }
+            }
+        }
+
+        internal static string BuildServiceUrl(int port)
+        {
+            return "http://127.0.0.1:" + port + "/";
+        }
+
+        /// <summary>是不是本机 DSH 的地址(端口不固定,只看主机名和 token)。</summary>
+        internal static bool IsLocalServiceUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+            {
+                return false;
+            }
+
+            return url.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase)
+                || url.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static string ReadLastUrl()
         {
             try
@@ -450,17 +483,17 @@ namespace DeepSeekHarnessLauncher
                 string root = LauncherLocator.FindRoot();
                 if (string.IsNullOrEmpty(root))
                 {
-                    return Constants.Url;
+                    return BuildServiceUrl(ServicePort);
                 }
 
                 string path = Path.Combine(root, @"logs\last-url.txt");
                 if (!File.Exists(path))
                 {
-                    return Constants.Url;
+                    return BuildServiceUrl(ServicePort);
                 }
 
                 string value = File.ReadAllText(path, Encoding.UTF8).Trim();
-                if (value.StartsWith("http://127.0.0.1:8787/", StringComparison.OrdinalIgnoreCase))
+                if (IsLocalServiceUrl(value))
                 {
                     return value;
                 }
@@ -469,7 +502,7 @@ namespace DeepSeekHarnessLauncher
             {
             }
 
-            return Constants.Url;
+            return BuildServiceUrl(ServicePort);
         }
 
         internal static string QuoteArgument(string value)
@@ -1008,6 +1041,12 @@ namespace DeepSeekHarnessLauncher
         private string _launcherDirectory;
         private UpdateProgressWindow _updateWindow;
 
+        /// <summary>服务是不是本进程拉起来的。不是的话退出时不该去杀别人的进程。</summary>
+        private bool _serviceStartedByUs = true;
+
+        /// <summary>本次使用的 DSH 服务端口(启动时探测,之后不再变)。</summary>
+        private int _port = DshPortResolver.DefaultPort;
+
         public LauncherContext(EventWaitHandle openPageEvent, DispatcherQueue dispatcherQueue)
         {
             _openPageEvent = openPageEvent;
@@ -1018,6 +1057,13 @@ namespace DeepSeekHarnessLauncher
 
             // 自更新要替换的就是自己所在的目录
             _launcherDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+
+            // 每次启动都重新判端口:先看运行中的 dsh 进程,再看 DSH 自己写的 last-url.txt,
+            // 然后探常见端口,最后才自己挑一个。别人机器上端口可能不是 8787。
+            bool serviceAlreadyRunning;
+            _port = DshPortResolver.Resolve(_root, out serviceAlreadyRunning);
+            Program.ServicePort = _port;
+            _serviceStartedByUs = !serviceAlreadyRunning;
 
             // 记下这次找到的路径,下次启动不用再满盘找
             LauncherLocator.Remember(_root, _nodePath);
@@ -1158,9 +1204,11 @@ namespace DeepSeekHarnessLauncher
 
             try
             {
+                WriteLog("=== 启动期自更新:开始 ===");
                 _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
                 _updateWindow.Show();
                 _updateWindow.Update("正在检查更新…", "正在读取版本清单", -1);
+                WriteLog("更新进度窗已创建并显示");
 
                 string error;
                 UpdateManifest manifest = UpdateSupport.FetchManifest(out error);
@@ -1170,6 +1218,10 @@ namespace DeepSeekHarnessLauncher
                     FinishUpdateWindow();
                     return;
                 }
+
+                WriteLog("版本清单: 远端 " + manifest.Version + " / 本机 " + Constants.Version
+                    + " / 首选源 " + (manifest.Urls.Count > 0 ? manifest.Urls[0] : "-")
+                    + " / 地区 " + RegionInfo.Reason);
 
                 if (!UpdateSupport.IsNewer(manifest.Version, Constants.Version))
                 {
@@ -1215,7 +1267,9 @@ namespace DeepSeekHarnessLauncher
                     "替换文件后启动器会自动重启,DSH 服务不受影响",
                     100);
 
-                Thread.Sleep(800);
+                // 让进度窗至少停留两秒。本地源或缓存命中时下载极快,
+                // 不留时间的话用户根本看不到这个窗就重启了。
+                Thread.Sleep(2000);
 
                 // 交棒给替换脚本,然后退出自己
                 UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
@@ -1366,7 +1420,7 @@ namespace DeepSeekHarnessLauncher
             worker.Start();
         }
 
-        /// <summary>查一次远端版本。silent=true 时只在有新版时提示。</summary>
+        /// <summary>查一次远端版本。整个过程安静进行,不打扰用户。</summary>
         private void CheckForUpdate(bool silent)
         {
             string error;
@@ -1400,13 +1454,10 @@ namespace DeepSeekHarnessLauncher
                 return;
             }
 
+            // 自更新是静默的:查到新版直接进下载流程,不弹"托盘菜单可更新"那种提示
             _availableUpdateVersion = manifest.Version;
             _pendingManifest = manifest;
-            InvokeOnUi(delegate()
-            {
-                _trayMenu.SetUpdateState(manifest.Version);
-                ShowNotification("发现新版本 v" + manifest.Version + ",托盘菜单可更新。", false);
-            });
+            WriteLog("发现新版本 " + manifest.Version + ",进入静默更新流程");
         }
 
         private void InstallUpdate()
@@ -1783,10 +1834,29 @@ namespace DeepSeekHarnessLauncher
         {
             _startupInProgress = true;
             WriteLog("Checking whether the service is already available.");
+
             if (IsServiceReady())
             {
+                WriteLog("服务已经在跑,直接接管,不再新建 node 进程。");
+                _serviceStartedByUs = false;
                 FinishSuccessfulStartup(true);
                 return;
+            }
+
+            // 端口被占但 HTTP 还没响应:多半是上一次的 DSH 正在启动或正忙。
+            // 这时候再起一个 node 只会撞端口,等一会儿再看。
+            if (IsServicePortListening(_port))
+            {
+                WriteLog("端口 " + _port + " 已被占用,等现有服务响应,不新建进程。");
+                string waitMessage;
+                if (WaitForServiceReady(out waitMessage))
+                {
+                    _serviceStartedByUs = false;
+                    FinishSuccessfulStartup(true);
+                    return;
+                }
+
+                WriteLog("等到超时现有服务还没响应:" + waitMessage);
             }
 
             _serviceUrl = null;
@@ -1815,6 +1885,12 @@ namespace DeepSeekHarnessLauncher
                 StopService();
                 FailStartup("DeepSeek Harness 服务启动失败：" + exception.Message + Environment.NewLine + "日志：" + _logPath);
             }
+        }
+
+        /// <summary>端口有没有人在听。用来区分"服务在跑"和"端口被占但没响应"。</summary>
+        private static bool IsServicePortListening(int port)
+        {
+            return DshPortResolver.IsPortListening(port);
         }
 
         private bool WaitForServiceReady(out string failureMessage)
@@ -1866,7 +1942,7 @@ namespace DeepSeekHarnessLauncher
             startInfo.FileName = _nodePath;
             startInfo.Arguments = Program.QuoteArgument(_dshBin)
                 + " web --port "
-                + Constants.Port.ToString()
+                + _port.ToString()
                 + " --no-open";
             startInfo.WorkingDirectory = _root;
             startInfo.UseShellExecute = false;
@@ -1920,24 +1996,28 @@ namespace DeepSeekHarnessLauncher
 
         private void CaptureServiceUrl(string line)
         {
-            const string marker = "http://127.0.0.1:8787/?token=";
-            int markerIndex = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (markerIndex < 0)
+            // DSH 启动时会把带 token 的地址打到 stdout。端口不一定是我们起的那个,
+            // 所以这里按正则抓,不写死 8787。
+            System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+                line,
+                @"https?://(?:127\.0\.0\.1|localhost):(?<port>\d{2,5})/\?token=(?<token>[^\s""'<>]+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success)
             {
                 return;
             }
 
-            string value = line.Substring(markerIndex).Trim();
-            int endIndex = value.IndexOfAny(new char[] { ' ', '\t', '\r', '\n' });
-            if (endIndex >= 0)
-            {
-                value = value.Substring(0, endIndex);
-            }
+            string value = match.Value.TrimEnd('.', ',', ';', '"', '\'');
 
-            value = value.TrimEnd('.', ',', ';', '"', '\'');
-            if (!value.StartsWith(marker, StringComparison.OrdinalIgnoreCase))
+            int reportedPort;
+            if (int.TryParse(match.Groups["port"].Value, out reportedPort) && reportedPort > 0)
             {
-                return;
+                Program.ServicePort = reportedPort;
+                if (reportedPort != _port)
+                {
+                    WriteLog("DSH 实际端口是 " + reportedPort + ",跟随它(原以为 " + _port + ")");
+                    _port = reportedPort;
+                }
             }
 
             _serviceUrl = value;
@@ -2289,7 +2369,7 @@ namespace DeepSeekHarnessLauncher
 
                         string localEndpoint = parts[1];
                         string state = parts[3];
-                        if (localEndpoint.EndsWith(":" + Constants.Port.ToString(), StringComparison.OrdinalIgnoreCase)
+                        if (localEndpoint.EndsWith(":" + _port.ToString(), StringComparison.OrdinalIgnoreCase)
                             && state.Equals("LISTENING", StringComparison.OrdinalIgnoreCase))
                         {
                             int processId;
@@ -2326,7 +2406,7 @@ namespace DeepSeekHarnessLauncher
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(Constants.Url);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(Program.BuildServiceUrl(_port));
                 request.Method = "GET";
                 request.Timeout = 900;
                 request.ReadWriteTimeout = 900;
@@ -3461,6 +3541,8 @@ namespace DeepSeekHarnessLauncher
                 _openItem,
                 _restartItem,
                 _startupItem,
+                // 「检查更新」也要进这个数组,漏了它悬停高亮就跟别的行不一样
+                _updateItem,
                 _forceStopItem,
                 _exitItem
             };

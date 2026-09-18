@@ -376,12 +376,18 @@ namespace DeepSeekHarnessLauncher
             string scriptPath = Path.Combine(Path.GetTempPath(), "DeepSeekHarnessUpdate", "apply-update.ps1");
             string logPath = Path.Combine(installDirectory, "logs", "update.log");
 
+            // 把「可执行文件 + 参数」拼成一条完整的命令行。
+            // 路径可能有空格,所以整体套双引号;里面的反斜杠原样保留,不做 C 风格转义。
+            string launcherCommand =
+                "\"" + Path.Combine(installDirectory, "DeepSeek Harness.exe") + "\" "
+                + "--no-browser --updated=" + Constants.Version;
+
             string script = BuildApplyScript(
                 installDirectory,
                 newFilesDirectory,
                 Program.PreviousProcessId,
                 logPath,
-                Program.QuoteArgument(Path.Combine(installDirectory, "DeepSeek Harness.exe")),
+                launcherCommand,
                 Constants.Version);
 
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
@@ -413,7 +419,7 @@ namespace DeepSeekHarnessLauncher
             string newFilesDirectory,
             int processId,
             string logPath,
-            string launcherQuoted,
+            string launcherCommand,
             string newVersion)
         {
             StringBuilder builder = new StringBuilder();
@@ -428,6 +434,7 @@ namespace DeepSeekHarnessLauncher
             builder.AppendLine("}");
             builder.AppendLine("$dir = " + Quote(installDirectory));
             builder.AppendLine("$new = " + Quote(newFilesDirectory));
+            builder.AppendLine("$launcher = " + Quote(Path.Combine(installDirectory, "DeepSeek Harness.exe")));
             builder.AppendLine("$procId = " + processId.ToString(CultureInfo.InvariantCulture));
             builder.AppendLine("$newVersion = " + Quote(newVersion));
             builder.AppendLine("W \"apply-update started, waiting for pid $procId to exit\"");
@@ -454,17 +461,23 @@ namespace DeepSeekHarnessLauncher
             builder.AppendLine("W \"files copied: total=$total failed=$fail\"");
             builder.AppendLine("Start-Sleep -Seconds 1");
             // Restart the launcher only. DSH service (node) is a separate process and stays alive.
-            builder.AppendLine("W 'restarting launcher (no browser, keep DSH running)'");
-            builder.AppendLine("$shell = New-Object -ComObject WScript.Shell");
-            builder.AppendLine("$ok = $false");
-            builder.AppendLine("try {");
-            builder.AppendLine("  $shell.Run(" + launcherQuoted + " + ' --no-browser --updated=' + $newVersion, 0, $false) | Out-Null");
-            builder.AppendLine("  $ok = $true");
-            builder.AppendLine("} catch { W ('restart failed: ' + $_.Exception.Message) }");
-            builder.AppendLine("W \"restart result: $ok\"");
-            builder.AppendLine("if (-not $ok) {");
-            builder.AppendLine("  try { $shell.Popup('Update finished but the launcher could not restart. Please start it manually.', 30, 'DeepSeek Harness', 48) | Out-Null } catch { }");
-            builder.AppendLine("}");
+            //
+            // Why a scheduled task instead of shell.Run: the launcher manifest requires
+            // administrator, and this script runs unelevated, so a direct start would be
+            // blocked by UAC (invisible when running hidden). A one-shot task with
+            // /RL HIGHEST is started by the Task Scheduler service with the admin token,
+            // so no UAC prompt and the tray really comes back.
+            builder.AppendLine("W 'restarting launcher via scheduled task (no browser, keep DSH running)'");
+            builder.AppendLine("$task = 'DeepSeekHarnessUpdateRestart'");
+            builder.AppendLine("$tr = '\"' + $launcher + '\" --no-browser --updated=' + $newVersion");
+            builder.AppendLine("schtasks.exe /delete /tn $task /f 2>&1 | Out-Null");
+            builder.AppendLine("$out = schtasks.exe /create /tn $task /tr $tr /sc once /st 23:59 /it /f /rl highest 2>&1");
+            builder.AppendLine("W ('create task: ' + ($out -join ' '))");
+            builder.AppendLine("$out2 = schtasks.exe /run /tn $task 2>&1");
+            builder.AppendLine("W ('run task: ' + ($out2 -join ' '))");
+            builder.AppendLine("Start-Sleep -Seconds 3");
+            builder.AppendLine("schtasks.exe /delete /tn $task /f 2>&1 | Out-Null");
+            builder.AppendLine("W 'restart command issued'");
             builder.AppendLine("W 'done'");
             return builder.ToString();
         }

@@ -1,11 +1,11 @@
 {
   "version": "1.3.16",
-  "sha256": "f4fcca327935ba8da1ee100a7985814494c99d907fa7d33f41c4089a9b2f7643",
+  "sha256": "9eea7d94cebfa8c0b8285dfbf7007dcf78e264e02d512994993d6ca8fd51265f",
   "subDirectory": "",
   "assets": {
     "github": "https://github.com/YunxiRamito/DSH-Launcher/releases/download/v1.3.16/DeepSeekHarness-1.3.16.zip",
     "mirrors": []
   },
   "notes": "DeepSeek Harness 启动器 v1.3.16",
-  "releasedAt": "2026-09-19T01:05:53"
+  "releasedAt": "2026-09-19T01:26:33"
 }
