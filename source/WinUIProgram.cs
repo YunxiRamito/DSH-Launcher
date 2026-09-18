@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.3.14";
+        public const string Version = "1.3.16";
         public const string Url = "http://127.0.0.1:8787/";
         public const int Port = 8787;
         public const int TrayIconId = 1;
@@ -82,6 +82,25 @@ namespace DeepSeekHarnessLauncher
         internal static string ResolvedNode
         {
             get { return _resolvedNode; }
+        }
+
+        /// <summary>当前进程 ID。自更新的替换脚本要靠它等我们退出。</summary>
+        internal static int PreviousProcessId
+        {
+            get
+            {
+                try
+                {
+                    using (Process current = Process.GetCurrentProcess())
+                    {
+                        return current.Id;
+                    }
+                }
+                catch
+                {
+                    return 0;
+                }
+            }
         }
 
         internal static bool NoBrowser
@@ -153,6 +172,45 @@ namespace DeepSeekHarnessLauncher
             EnsureXamlControlsResources();
             _currentContext = new LauncherContext(_pendingOpenPageEvent, dispatcherQueue);
             _currentContext.Start();
+        }
+
+        /// <summary>
+        /// 上一次更新后重启过来的标记(--updated=版本号),用来推一条"更新完成"通知。
+        /// 读取一次就记住,避免重复弹。
+        /// </summary>
+        private static string _updatedFromVersion;
+
+        internal static string ConsumeUpdatedVersion()
+        {
+            if (_updatedFromVersion == null)
+            {
+                _updatedFromVersion = ReadUpdatedArgument();
+            }
+
+            string value = _updatedFromVersion;
+            _updatedFromVersion = string.Empty;
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+
+        private static string ReadUpdatedArgument()
+        {
+            try
+            {
+                string[] arguments = Environment.GetCommandLineArgs();
+                for (int index = 1; index < arguments.Length; index++)
+                {
+                    string argument = arguments[index];
+                    if (argument.StartsWith("--updated=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return argument.Substring("--updated=".Length).Trim();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -943,6 +1001,13 @@ namespace DeepSeekHarnessLauncher
         private DateTime _lastMenuRefreshUtc;
         private string _serviceUrl;
 
+        /// <summary>自更新状态。</summary>
+        private volatile bool _updateInProgress;
+        private string _availableUpdateVersion;
+        private UpdateManifest _pendingManifest;
+        private string _launcherDirectory;
+        private UpdateProgressWindow _updateWindow;
+
         public LauncherContext(EventWaitHandle openPageEvent, DispatcherQueue dispatcherQueue)
         {
             _openPageEvent = openPageEvent;
@@ -950,6 +1015,9 @@ namespace DeepSeekHarnessLauncher
             _root = Program.ResolvedRoot;
             _nodePath = Program.ResolvedNode;
             _dshBin = Path.Combine(_root, @"node_modules\@deepseek-ai\dsh\lib\bin.js");
+
+            // 自更新要替换的就是自己所在的目录
+            _launcherDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
             // 记下这次找到的路径,下次启动不用再满盘找
             LauncherLocator.Remember(_root, _nodePath);
@@ -985,6 +1053,7 @@ namespace DeepSeekHarnessLauncher
             _trayMenu.OpenClicked += OpenItemClick;
             _trayMenu.RestartClicked += RestartItemClick;
             _trayMenu.StartupClicked += StartupItemClick;
+            _trayMenu.UpdateClicked += UpdateItemClick;
             _trayMenu.ForceStopClicked += ForceStopItemClick;
             _trayMenu.ExitClicked += ExitItemClick;
 
@@ -1038,6 +1107,149 @@ namespace DeepSeekHarnessLauncher
             startupThread.IsBackground = true;
             startupThread.Name = "DeepSeekHarnessStartup";
             startupThread.Start();
+
+            // 强制的启动期自动更新:给界面几秒把托盘挂好,然后检查并直接更新
+            Thread updateThread = new Thread(delegate()
+            {
+                Thread.Sleep(4000);
+                RunMandatoryUpdate();
+            });
+            updateThread.IsBackground = true;
+            updateThread.Name = "DeepSeekHarnessUpdate";
+            updateThread.Start();
+
+            // 刚更新完重启回来的,弹一条完成通知(只弹一次,不重复)
+            string updatedFrom = Program.ConsumeUpdatedVersion();
+            if (!string.IsNullOrEmpty(updatedFrom))
+            {
+                WriteLog("本实例是更新后重启的: " + updatedFrom + " -> " + Constants.Version);
+                Thread noticeThread = new Thread(delegate()
+                {
+                    Thread.Sleep(2500);
+                    InvokeOnUi(delegate()
+                    {
+                        ShowNotification(
+                            "DeepSeek Harness 更新完成:v" + updatedFrom + " → v" + Constants.Version,
+                            false);
+                    });
+                });
+                noticeThread.IsBackground = true;
+                noticeThread.Name = "DeepSeekHarnessUpdateNotice";
+                noticeThread.Start();
+            }
+        }
+
+        /// <summary>
+        /// 启动期强制更新:查到新版就下载、替换、重启自己。
+        ///
+        /// 三条硬约束:
+        ///   1. 只重启启动器,DSH 服务(node)不动 —— 替换的是启动器目录,不碰 DSH
+        ///   2. 重启后不弹浏览器(带 --no-browser)
+        ///   3. 更新完成由重启后的实例推一条系统通知(带 --updated)
+        /// </summary>
+        private void RunMandatoryUpdate()
+        {
+            if (_updateInProgress)
+            {
+                return;
+            }
+
+            _updateInProgress = true;
+
+            try
+            {
+                _updateWindow = new UpdateProgressWindow(_dispatcherQueue);
+                _updateWindow.Show();
+                _updateWindow.Update("正在检查更新…", "正在读取版本清单", -1);
+
+                string error;
+                UpdateManifest manifest = UpdateSupport.FetchManifest(out error);
+                if (manifest == null)
+                {
+                    WriteLog("启动期检查更新失败,跳过: " + error);
+                    FinishUpdateWindow();
+                    return;
+                }
+
+                if (!UpdateSupport.IsNewer(manifest.Version, Constants.Version))
+                {
+                    WriteLog("已经是最新版 " + Constants.Version + ",无需更新");
+                    FinishUpdateWindow();
+                    return;
+                }
+
+                WriteLog("发现新版本 " + manifest.Version + "(本机 " + Constants.Version + "),开始强制更新");
+                _updateWindow.Update("正在更新到 v" + manifest.Version, "准备下载…", 0);
+
+                string staging;
+                string stageError;
+                staging = UpdateSupport.PrepareStaging(
+                    manifest,
+                    _launcherDirectory,
+                    delegate(long received, long total)
+                    {
+                        if (total <= 0 || _updateWindow == null)
+                        {
+                            return;
+                        }
+
+                        double percent = received * 100.0 / total;
+                        _updateWindow.Update(
+                            null,
+                            DescribeDownload(received, total, percent),
+                            percent);
+                    },
+                    out stageError);
+
+                if (staging == null)
+                {
+                    WriteLog("更新下载失败: " + stageError);
+                    _updateWindow.Update("更新失败", stageError, 0);
+                    Thread.Sleep(4000);
+                    FinishUpdateWindow();
+                    return;
+                }
+
+                _updateWindow.Update(
+                    "正在应用更新",
+                    "替换文件后启动器会自动重启,DSH 服务不受影响",
+                    100);
+
+                Thread.Sleep(800);
+
+                // 交棒给替换脚本,然后退出自己
+                UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
+                InvokeOnUi(ExitApplication);
+            }
+            catch (Exception exception)
+            {
+                WriteLog("启动期更新出错: " + exception.Message);
+                FinishUpdateWindow();
+            }
+        }
+
+        private static string DescribeDownload(long received, long total, double percent)
+        {
+            try
+            {
+                string receivedText = (received / 1048576.0).ToString("0.0");
+                string totalText = (total / 1048576.0).ToString("0.0");
+                return receivedText + " / " + totalText + " MB  (" + percent.ToString("0") + "%)";
+            }
+            catch
+            {
+                return "下载中…";
+            }
+        }
+
+        private void FinishUpdateWindow()
+        {
+            _updateInProgress = false;
+            if (_updateWindow != null)
+            {
+                _updateWindow.Close();
+                _updateWindow = null;
+            }
         }
 
         private static bool IsAdministrator()
@@ -1098,6 +1310,158 @@ namespace DeepSeekHarnessLauncher
         private void TrayDoubleClick()
         {
             OpenServicePage();
+        }
+
+        /// <summary>
+        /// 「检查更新」。检查、下载解压都在后台线程做,替换交给独立脚本:
+        /// 正在运行的程序没法覆盖自己的 exe,必须退出后由外部脚本换文件。
+        /// </summary>
+        private void UpdateItemClick()
+        {
+            if (_updateInProgress)
+            {
+                ShowNotification("正在更新,请稍候…", false);
+                return;
+            }
+
+            bool hasUpdate = !string.IsNullOrEmpty(_availableUpdateVersion);
+            if (hasUpdate)
+            {
+                WinFormsDialogResult answer = WinFormsMessageBox.Show(
+                    "发现新版本 v" + _availableUpdateVersion + "(当前 v" + Constants.Version + ")。\r\n\r\n"
+                    + "现在更新吗?启动器会短暂重启,DSH 服务不受影响。",
+                    Constants.Title,
+                    WinFormsMessageBoxButtons.OKCancel,
+                    WinFormsMessageBoxIcon.Question);
+                if (answer != WinFormsDialogResult.OK)
+                {
+                    return;
+                }
+            }
+
+            _updateInProgress = true;
+            _trayIcon.UpdateTip(Constants.Title + " 正在检查更新…");
+
+            Thread worker = new Thread(delegate()
+            {
+                if (!hasUpdate)
+                {
+                    CheckForUpdate(silent: false);
+                }
+
+                if (string.IsNullOrEmpty(_availableUpdateVersion))
+                {
+                    _updateInProgress = false;
+                    InvokeOnUi(delegate()
+                    {
+                        _trayIcon.UpdateTip(Constants.Title + " 正在运行");
+                    });
+                    return;
+                }
+
+                InstallUpdate();
+            });
+            worker.IsBackground = true;
+            worker.Name = "DeepSeekHarnessUpdate";
+            worker.Start();
+        }
+
+        /// <summary>查一次远端版本。silent=true 时只在有新版时提示。</summary>
+        private void CheckForUpdate(bool silent)
+        {
+            string error;
+            UpdateManifest manifest = UpdateSupport.FetchManifest(out error);
+            if (manifest == null)
+            {
+                WriteLog("检查更新失败: " + error);
+                if (!silent)
+                {
+                    InvokeOnUi(delegate()
+                    {
+                        ShowNotification("检查更新失败:" + error, true);
+                    });
+                }
+
+                return;
+            }
+
+            WriteLog("远端版本 " + manifest.Version + ",本机 " + Constants.Version);
+            if (!UpdateSupport.IsNewer(manifest.Version, Constants.Version))
+            {
+                _availableUpdateVersion = null;
+                InvokeOnUi(delegate()
+                {
+                    _trayMenu.SetUpdateState(null);
+                    if (!silent)
+                    {
+                        ShowNotification("已经是最新版 v" + Constants.Version + "。", false);
+                    }
+                });
+                return;
+            }
+
+            _availableUpdateVersion = manifest.Version;
+            _pendingManifest = manifest;
+            InvokeOnUi(delegate()
+            {
+                _trayMenu.SetUpdateState(manifest.Version);
+                ShowNotification("发现新版本 v" + manifest.Version + ",托盘菜单可更新。", false);
+            });
+        }
+
+        private void InstallUpdate()
+        {
+            string staging;
+            string error;
+            InvokeOnUi(delegate()
+            {
+                ShowNotification("正在下载 v" + _availableUpdateVersion + "…", false);
+            });
+
+            staging = UpdateSupport.PrepareStaging(
+                _pendingManifest,
+                _launcherDirectory,
+                delegate(long received, long total)
+                {
+                    if (total <= 0)
+                    {
+                        return;
+                    }
+
+                    int percent = (int)(received * 100 / total);
+                    _trayIcon.UpdateTip(
+                        Constants.Title + " 正在下载更新 " + percent.ToString() + "%");
+                    if (_updateWindow != null)
+                    {
+                        _updateWindow.Update(null, DescribeDownload(received, total, percent), percent);
+                    }
+                },
+                out error);
+
+            if (staging == null)
+            {
+                _updateInProgress = false;
+                WriteLog("下载更新失败: " + error);
+                InvokeOnUi(delegate()
+                {
+                    _trayIcon.UpdateTip(Constants.Title + " 正在运行");
+                    ShowNotification("更新失败:" + error, true);
+                });
+                return;
+            }
+
+            WriteLog("更新包已解压到 " + staging + ",准备替换");
+            if (_updateWindow != null)
+            {
+                _updateWindow.Update(
+                    "正在应用更新",
+                    "替换文件后启动器会自动重启,DSH 服务不受影响",
+                    100);
+            }
+
+            Thread.Sleep(800);
+            UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
+            InvokeOnUi(ExitApplication);
         }
 
         private void BalanceItemClick()
@@ -2830,6 +3194,7 @@ namespace DeepSeekHarnessLauncher
         private readonly Microsoft.UI.Xaml.Controls.Button _openItem;
         private readonly Microsoft.UI.Xaml.Controls.Button _restartItem;
         private readonly Microsoft.UI.Xaml.Controls.Button _startupItem;
+        private readonly Microsoft.UI.Xaml.Controls.Button _updateItem;
         private readonly Microsoft.UI.Xaml.Controls.Button _forceStopItem;
         private readonly Microsoft.UI.Xaml.Controls.Button _exitItem;
         private readonly NativeMethods.WinEventDelegate _foregroundChanged;
@@ -2879,6 +3244,7 @@ namespace DeepSeekHarnessLauncher
             _openItem = CreateItem("打开页面", "\uE8A7", true);
             _restartItem = CreateItem("重启 DSH 服务", "\uE72C", false);
             _startupItem = CreateItem("开机自启动", "\uE945", false);
+            _updateItem = CreateItem("检查更新", "\uE895", false);
             _forceStopItem = CreateItem("强行终止", "\uE71A", false);
             _exitItem = CreateItem("退出", "\uE7E8", false);
 
@@ -2902,6 +3268,11 @@ namespace DeepSeekHarnessLauncher
                 Close();
                 StartupClicked();
             };
+            _updateItem.Click += delegate
+            {
+                Close();
+                UpdateClicked();
+            };
             _forceStopItem.Click += delegate
             {
                 Close();
@@ -2922,6 +3293,7 @@ namespace DeepSeekHarnessLauncher
             items.Children.Add(_openItem);
             items.Children.Add(_restartItem);
             items.Children.Add(_startupItem);
+            items.Children.Add(_updateItem);
             items.Children.Add(CreateSeparator());
             items.Children.Add(_forceStopItem);
             items.Children.Add(_exitItem);
@@ -2945,6 +3317,7 @@ namespace DeepSeekHarnessLauncher
         public event Action OpenClicked = delegate { };
         public event Action RestartClicked = delegate { };
         public event Action StartupClicked = delegate { };
+        public event Action UpdateClicked = delegate { };
         public event Action ForceStopClicked = delegate { };
         public event Action ExitClicked = delegate { };
 
@@ -3028,6 +3401,20 @@ namespace DeepSeekHarnessLauncher
             {
                 label.Text = enabled ? "开机自启动  ✓" : "开机自启动";
             }
+        }
+
+        /// <summary>更新那一行的状态:发现新版本就标出来。</summary>
+        public void SetUpdateState(string availableVersion)
+        {
+            TextBlock label = _updateItem.Tag as TextBlock;
+            if (label == null)
+            {
+                return;
+            }
+
+            label.Text = string.IsNullOrEmpty(availableVersion)
+                ? "检查更新"
+                : "检查更新  ·  v" + availableVersion;
         }
 
         public void Close()
