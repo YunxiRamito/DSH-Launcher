@@ -24,7 +24,10 @@ param(
     [string]$Otp = '',
 
     # 不等 npmmirror 同步就返回。默认**要等** —— 见下面那段"闸门"的说明。
-    [switch]$NoWait
+    [switch]$NoWait,
+
+    # zip 在哪儿。默认找 assets\<版本>.zip;CI 里是刚构建出来的那份,用这个指定。
+    [string]$ZipPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,9 +41,12 @@ if (-not $Version) {
 if (-not $Version) { throw '确定不了版本号:manifest.json 里没有 version,也没传 -Version' }
 
 $zipName = "DeepSeekHarness-$Version.zip"
-$zipPath = Join-Path $root "assets\$zipName"
-if (-not (Test-Path $zipPath)) {
-    throw "找不到 $zipPath —— 先把 zip 放进 assets\(并提交,jsDelivr 之类才看得到;npm 这条其实只要求本地有)"
+if (-not $ZipPath) {
+    $ZipPath = Join-Path $root "assets\$zipName"
+}
+
+if (-not (Test-Path $ZipPath)) {
+    throw "找不到 zip:$ZipPath`n(本地发版要先把它放进 assets\;CI 里用 -ZipPath 指定刚构建的那份)"
 }
 
 $stage = Join-Path $env:TEMP "dsh-launcher-npm-$Version"
@@ -62,7 +68,7 @@ $pkg = [ordered]@{
 
 $json = $pkg | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText((Join-Path $stage 'package.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
-Copy-Item $zipPath (Join-Path $stage $zipName) -Force
+Copy-Item $ZipPath (Join-Path $stage $zipName) -Force
 
 Write-Host "包目录:$stage"
 Get-ChildItem $stage | Select-Object Name, @{n = 'MB'; e = { [math]::Round($_.Length / 1MB, 2) } } | Format-Table -AutoSize

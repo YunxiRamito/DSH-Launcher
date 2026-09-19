@@ -31,7 +31,14 @@ else {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 }
 
-$env:NUGET_PACKAGES = 'G:\DeepSeek DSH\.nuget-packages'
+# 本机有离线 NuGet 缓存就用它(省流量);没有就不设,交给默认缓存。
+# **别写死**:这个脚本本机/CI 都可能跑,写死本机路径会让 CI 上找不到目录。
+$localNuGet = 'G:\DeepSeek DSH\.nuget-packages'
+if (Test-Path -LiteralPath $localNuGet) { $env:NUGET_PACKAGES = $localNuGet }
+
+# 本机走代理(仓库里的 NuGet.config 不写这个,那是本机专属的)
+if (-not $env:HTTP_PROXY) { $env:HTTP_PROXY = 'http://127.0.0.1:7890' }
+if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = 'http://127.0.0.1:7890' }
 
 & $dotnet publish $project `
     --configuration Release `

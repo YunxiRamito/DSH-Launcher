@@ -1,14 +1,17 @@
 name: release
 
-# 打 tag 就自动出包并建 Release。
-# 版本号必须和 source/DeepSeekHarness.csproj 里的 <Version> 一致,否则直接失败。
+# 打 tag 就自动出包、发 npm、建 Release。
 #
 # 用法:
-#   git tag v1.3.10
-#   git push origin v1.3.10
+#   # 1) 先改 source\DeepSeekHarness.csproj 里的 <Version> 并提交
+#   # 2) 再打 tag —— 顺序反了会被下面的校验拦下
+#   git tag v1.3.22
+#   git push origin v1.3.22
 #
-# 发完之后本地跑一次 release.ps1 更新 manifest.json 里的 sha256 并提交。
-# (runner 上算出的哈希没法自动提交回来,这一步留人工)
+# 手动试跑(workflow_dispatch)只编译 + 存构建产物,**不发 npm、不建 Release** ——
+# 想验证 CI 通不通就用它,不会留下垃圾 Release。
+#
+# npmmirror 同步好之前别更新 manifest.json,原因见发 Release 那步的说明。
 
 on:
   push:
@@ -39,9 +42,12 @@ jobs:
           $projectVersion = ([regex]::Match((Get-Content source\DeepSeekHarness.csproj -Raw), '<Version>([^<]+)</Version>')).Groups[1].Value.Trim()
           $tag = '${{ github.ref_name }}'
           Write-Host "csproj=$projectVersion  tag=$tag"
-          if ($tag -ne "v$projectVersion") {
-            throw "tag($tag) 和 csproj 版本(v$projectVersion) 对不上"
+
+          # 手动试跑没有 tag,跳过这项校验
+          if ($tag -like 'v*' -and $tag -ne "v$projectVersion") {
+            throw "tag($tag) 和 csproj 里的 <Version>(v$projectVersion) 对不上。先改版本号并提交,再打 tag —— 顺序反了就会这样(这个坑踩过好几次)。"
           }
+
           "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "zip=DeepSeekHarness-$projectVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -79,7 +85,31 @@ jobs:
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         id: pack
 
+      - name: 存成构建产物(手动试跑时也能下载)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSH-Launcher-${{ steps.meta.outputs.version }}
+          path: ${{ steps.meta.outputs.zip }}
+          if-no-files-found: error
+
+      # 发到 npm —— 不是给谁 npm install,而是**借 npmmirror 的带宽**:
+      # 国内直连 GitHub 只有几十到一百多 KB/s(10 MB 要磨几分钟),
+      # npmmirror 实测 7,365 KB/s(1.4 秒)。安装器就认这条:
+      #   https://registry.npmmirror.com/@yunxiramito/dsh-launcher/-/dsh-launcher-<版本>.tgz
+      # 地址由版本号拼出来,所以安装器那边不用为每次发版做任何事。
+      #
+      # 需要仓库 secret NPM_TOKEN(带 bypass 2FA 的 npm token)。
+      # 只在打 tag 时发:手动试跑重复发同版本号会直接撞车。
+      - name: 发到 npm(npmmirror 会自动镜像)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          npm config set //registry.npmjs.org/:_authToken '${{ secrets.NPM_TOKEN }}'
+          .\publish-npm.ps1 -Version '${{ steps.meta.outputs.version }}' -ZipPath '${{ steps.meta.outputs.zip }}' -NoWait
+          if ($LASTEXITCODE -ne 0) { throw 'npm 发布失败' }
+
       - name: 发 Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.meta.outputs.zip }}
@@ -89,5 +119,10 @@ jobs:
 
             SHA256: `${{ steps.pack.outputs.sha256 }}`
 
-            > 记得把上面的 SHA256 更新到仓库根目录 `manifest.json` 并提交,
-            > 否则安装器会拿旧哈希校验失败。
+            同一份包也发到了 npm(`@yunxiramito/dsh-launcher@${{ steps.meta.outputs.version }}`),
+            安装器在加速线路下优先从 npmmirror 取 —— 国内 10 MB 大约 1.4 秒。
+
+            > **先别急着更新 `manifest.json`。** npmmirror 同步有延迟,而安装器认的版本号
+            > 来自那份清单:清单先动了,正好卡在空窗期装的用户就只能落到 GitHub 那条慢路。
+            > 等下面这个地址能下再更新:
+            > `https://registry.npmmirror.com/@yunxiramito/dsh-launcher/-/dsh-launcher-${{ steps.meta.outputs.version }}.tgz`

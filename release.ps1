@@ -31,7 +31,11 @@ $BootstrapManifest = Join-Path $SourceRoot 'RuntimeBootstrap.manifest'
 $IconPath = Join-Path $SourceRoot 'DeepSeekHarness.ico'
 $BuildScript = Join-Path $SourceRoot 'build-winui.ps1'
 $ManifestPath = Join-Path $PSScriptRoot 'manifest.json'
+# 优先用本机那套便携 SDK;没有就退回 PATH 里的 dotnet(CI 上就是这种)
 $Dotnet = 'G:\DeepSeek DSH\.tools\dotnet\dotnet.exe'
+if (-not (Test-Path -LiteralPath $Dotnet)) { $Dotnet = 'dotnet' }
+
+# 本机有离线 NuGet 缓存就用它;没有就不设(CI 上不存在这个目录)
 $NuGetCache = 'G:\DeepSeek DSH\.nuget-packages'
 $Csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 
@@ -99,7 +103,9 @@ if (-not $NoBuild) {
     Say ''
     Say '[2/5] 编译'
     if (-not (Test-Path $Dotnet)) { throw "找不到 .NET SDK: $Dotnet" }
-    $env:NUGET_PACKAGES = $NuGetCache
+
+    # 只在缓存目录真的存在时才指过去(CI 上没有这个目录)
+    if (Test-Path -LiteralPath $NuGetCache) { $env:NUGET_PACKAGES = $NuGetCache }
 
     Step 'dotnet publish (WinUI3 主程序)'
     & $Dotnet publish $ProjectFile `
