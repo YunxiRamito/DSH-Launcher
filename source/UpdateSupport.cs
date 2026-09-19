@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -230,6 +230,7 @@ namespace DeepSeekHarnessLauncher
                 return null;
             }
 
+            PreferNpmMirror(manifest);
             InstallLoggerLine("清单来自 GitHub API: " + manifest.Version);
             return manifest;
         }
@@ -307,7 +308,111 @@ namespace DeepSeekHarnessLauncher
                 return null;
             }
 
+            PreferNpmMirror(manifest);
             return manifest;
+        }
+
+        /// <summary>
+        /// 启动器发行包在 npm 上的名字。
+        ///
+        /// 为什么要走 npm:国内直连 GitHub 只有几十到一百多 KB/s,而这个包 10 MB,
+        /// 用户点"检查更新"要盯着进度条磨几分钟。npm 有 npmmirror 全量镜像,
+        /// 实测 7,365 KB/s(10 MB 约 1.4 秒)—— 快两个数量级。
+        /// (jsDelivr 试过,不行:它只对热门仓库的已缓存文件快,我们这种冷门仓库
+        ///  走它还是回源 GitHub 的速度。)
+        /// </summary>
+        internal const string NpmPackage = "@yunxiramito/dsh-launcher";
+
+        /// <summary>
+        /// 由**版本号拼出** npmmirror 的 tarball 地址。
+        ///
+        /// 地址是确定的,所以启动器(和安装器)都不用为每次发版改任何东西 ——
+        /// 读到的版本号决定地址。
+        /// </summary>
+        internal static string NpmTarballUrl(string version)
+        {
+            return "https://registry.npmmirror.com/" + NpmPackage + "/-/dsh-launcher-" + version + ".tgz";
+        }
+
+        /// <summary>把 npmmirror 那条排到最前面 —— 候选里它最快,没道理排在 ghproxy 后面。</summary>
+        private static void PreferNpmMirror(UpdateManifest manifest)
+        {
+            if (manifest == null || string.IsNullOrEmpty(manifest.Version))
+            {
+                return;
+            }
+
+            string npm = NpmTarballUrl(manifest.Version);
+
+            manifest.Urls.RemoveAll(delegate(string url)
+            {
+                return string.Equals(url, npm, StringComparison.OrdinalIgnoreCase);
+            });
+
+            manifest.Urls.Insert(0, npm);
+        }
+
+        /// <summary>
+        /// 把下下来的东西变成一份 **zip**。
+        ///
+        /// npmmirror 那条给的是 npm 的 tarball(tgz,里面才是我们那个 zip),
+        /// GitHub 那条直接给 zip。按**内容**判断(gzip 头 1F 8B),不靠 URL 猜。
+        ///
+        /// 顺带:清单里的 sha256 是**对 zip** 算的,所以解出来之后再校验,口径一致 ——
+        /// npm 那条路不用单独维护一份哈希。
+        /// </summary>
+        private static string MaterializeZip(string downloaded, string stagingRoot, out string error)
+        {
+            error = null;
+
+            bool isGzip = false;
+            try
+            {
+                using (FileStream probe = File.OpenRead(downloaded))
+                {
+                    isGzip = probe.ReadByte() == 0x1F && probe.ReadByte() == 0x8B;
+                }
+            }
+            catch
+            {
+            }
+
+            if (!isGzip)
+            {
+                return downloaded;
+            }
+
+            string zip = Path.Combine(stagingRoot, "launcher.zip");
+
+            try
+            {
+                using (FileStream file = File.OpenRead(downloaded))
+                using (System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(
+                    file, System.IO.Compression.CompressionMode.Decompress))
+                using (System.Formats.Tar.TarReader reader = new System.Formats.Tar.TarReader(gzip))
+                {
+                    System.Formats.Tar.TarEntry entry;
+                    while ((entry = reader.GetNextEntry()) != null)
+                    {
+                        if (!entry.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        entry.ExtractToFile(zip, true);
+                        InstallLoggerLight("从 npm 的 tgz 里解出启动器 zip");
+                        return zip;
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                error = "解 npm 包失败:" + exception.Message;
+                return null;
+            }
+
+            error = "npm 包里没有找到启动器 zip";
+            return null;
         }
 
         /// <summary>给 GitHub 资产地址配上加速前缀:只有在中国大陆才套 CDN 加速。</summary>
@@ -409,7 +514,10 @@ namespace DeepSeekHarnessLauncher
             error = null;
 
             string stagingRoot = Path.Combine(Path.GetTempPath(), "DeepSeekHarnessUpdate");
-            string packagePath = Path.Combine(stagingRoot, "launcher.zip");
+
+            // 扩展名故意不写死:候选里既有 npm 的 .tgz(里面才是 zip)也有 GitHub 的 .zip,
+            // 引擎轮换到哪条都可能,所以下完按**内容**判断(见 MaterializeZip)。
+            string downloadPath = Path.Combine(stagingRoot, "launcher.download");
             string extractPath = Path.Combine(stagingRoot, "new");
 
             try
@@ -421,8 +529,16 @@ namespace DeepSeekHarnessLauncher
 
                 Directory.CreateDirectory(stagingRoot);
 
-                string usedUrl = DownloadWithFallback(manifest.Urls, packagePath, progress);
+                string usedUrl = DownloadWithFallback(manifest.Urls, downloadPath, progress);
                 InstallLoggerLight("更新包已下载: " + usedUrl);
+
+                string materializeError;
+                string packagePath = MaterializeZip(downloadPath, stagingRoot, out materializeError);
+                if (packagePath == null)
+                {
+                    error = materializeError;
+                    return null;
+                }
 
                 if (!string.IsNullOrEmpty(manifest.Sha256))
                 {
