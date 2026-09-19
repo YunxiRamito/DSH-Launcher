@@ -5,9 +5,9 @@
   "assets": {
     "github": "https://github.com/YunxiRamito/DSH-Launcher/releases/download/v1.3.21/DeepSeekHarness-1.3.21.zip",
     "mirrors": [
-    "https://cdn.jsdmirror.com/gh/YunxiRamito/DSH-Launcher@assets-v1.3.21/assets/DeepSeekHarness-1.3.21.zip",
-    "https://jsdelivr.b-cdn.net/gh/YunxiRamito/DSH-Launcher@assets-v1.3.21/assets/DeepSeekHarness-1.3.21.zip"
-  ]
+      "https://cdn.jsdmirror.com/gh/YunxiRamito/DSH-Launcher@assets-v1.3.21/assets/DeepSeekHarness-1.3.21.zip",
+      "https://jsdelivr.b-cdn.net/gh/YunxiRamito/DSH-Launcher@assets-v1.3.21/assets/DeepSeekHarness-1.3.21.zip"
+    ]
   },
   "notes": "## 1.3.21\n\n**更新失败要\"快速换源\",不能干等**\n\n- 单个源的连接超时压到 15 秒,整体读写超时压到 3 分钟\n- 之前是 10 分钟:遇到连不上的镜像(`ghfast.top` 在国内实测超时),\n  客户端会对着进度条卡十分钟才换下一个源\n- 现在几十秒内就会跳到下一个可用源\n\n---",
   "releasedAt": "2026-09-19T01:50:57"
