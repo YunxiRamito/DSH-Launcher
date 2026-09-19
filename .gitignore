@@ -24,3 +24,8 @@ packages/
 *.log
 Thumbs.db
 desktop.ini
+
+# jsDelivr 只能取**仓库里的文件**,取不了 Release 资产 ——
+# 所以镜像要用的那份 zip 必须进仓库(其余 *.zip 仍然排除)。
+# 路径和 tag 一起变:见 RELEASE.md 的"jsDelivr 镜像"一节。
+!assets/*.zip
