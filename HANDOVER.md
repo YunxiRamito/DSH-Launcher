@@ -1,9 +1,409 @@
-# 交接:DSH Installer + DSH Launcher
+# 交接:DSH Launcher 1.4.1
 
-> 给下一个接手的人(或下一个 AI)。读完这份 + 两个仓库各自的 `STATUS.md` / `RELEASE.md`
-> 就能上手。**接手第一件事:把「待验证」那节跑完**,里面两条路是本轮唯一没实测过的。
+> 面向下一个接手窗口的完整对接报告。当前启动器已经是 `1.4.1`，
+> 已经发布到 npm、npmmirror 和 GitHub Release。旧版 1.3.x 交接内容保留在
+> 本文末尾的“历史记录”部分，只用来查背景，不要拿旧状态继续开发。
 
-最后更新:2026-09-19 夜
+最后更新:2026-09-21
+
+---
+
+## 一、先看结论
+
+### 当前发布状态
+
+| 项目 | 仓库 | 本地 HEAD | 最新 tag | 状态 |
+|------|------|-----------|----------|------|
+| DSH Launcher | `https://github.com/YunxiRamito/DSH-Launcher` | `9bdf0a8` | `v1.4.1` | 已发布 |
+| DSH Installer | `https://github.com/YunxiRamito/dsh-installer` | `b550288` | `v1.0.0` | 本轮未修改 |
+
+启动器 1.4.1 已发布:
+
+- npm:`@yunxiramito/dsh-launcher@1.4.1`
+- npmmirror:
+  `https://registry.npmmirror.com/@yunxiramito/dsh-launcher/-/dsh-launcher-1.4.1.tgz`
+- GitHub Release:
+  `https://github.com/YunxiRamito/DSH-Launcher/releases/tag/v1.4.1`
+- 资产:
+  `https://github.com/YunxiRamito/DSH-Launcher/releases/download/v1.4.1/DeepSeekHarness-1.4.1.zip`
+- SHA256:
+  `f74bdb4980a5cb4585bf4d9c0e8ef7e2e2c6fc246eb0089fe9b43adff5a81b2d`
+
+远端 `main/manifest.json` 已确认是 `1.4.1`，下载 URL 返回 HTTP 200。
+
+用户在 2026-09-21 已确认虚拟机验证通过。下面的“验证状态”保留为后续
+版本升级时的回归清单，不再表示当前版本仍未验证。
+
+### 两个项目的关系
+
+- 安装器负责:检测环境、补运行库、安装 DSH 本体、下载并部署启动器、快捷方式、卸载。
+- 启动器负责:托盘常驻、启动和管理 DSH、余额、设置、自更新、DSH 更新、提醒。
+- 安装器不内置当前启动器。安装时读取启动器仓库的 `manifest.json`，
+  再下载对应版本的 zip。
+- 启动器发新版不需要重发安装器，只要 npm 和 GitHub Release 发布完成，
+  安装器下一次新装就会拿到新版。
+
+---
+
+## 二、启动器代码地图
+
+仓库根目录:
+
+`G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter`
+
+主要文件:
+
+| 文件 | 作用 |
+|------|------|
+| `source/WinUIProgram.cs` | 主入口、托盘、服务生命周期、更新策略、提醒、单实例、退出 |
+| `source/SettingsWindow.xaml` | 设置窗口布局、页面、控件、SettingsExpander |
+| `source/SettingsWindow.xaml.cs` | 设置窗交互、即时保存、服务状态、更新状态反馈 |
+| `source/SettingsWindowHost.cs` | 设置窗与启动器主进程之间的回调接口 |
+| `source/LauncherSettings.cs` | `LauncherSettings.json` 数据模型 |
+| `source/LauncherSettingsStore.cs` | 配置读写、旧配置迁移、DPAPI API Key |
+| `source/LauncherAppearance.cs` | 设置窗、托盘、进度窗、通知窗共享的主题和材质 |
+| `source/CornerRadiusHelper.cs` | Windows 10/11 圆角策略 |
+| `source/UpdateSupport.cs` | 启动器更新清单、下载、npm tgz 解包、替换脚本 |
+| `source/DshUpdateService.cs` | DSH npm 版本检查、npm 安装、失败回滚 |
+| `source/UpdateUiSnapshot.cs` | 设置窗更新状态模型 |
+| `source/BilibiliProfileService.cs` | 关于作者头像 API 获取和进程缓存 |
+| `source/InstallerRegistration.cs` | 同步安装器状态文件和卸载注册表 |
+| `source/BalanceSupport.cs` | API Key 读取/加密、余额查询 |
+| `source/BalanceAlerts.cs` | 余额、消费、充值提醒 |
+
+设置窗资源:
+
+| 路径 | 作用 |
+|------|------|
+| `source/assets/SettingsNavIcons/*.svg` | Win11 彩色 Fluent 导航图标 |
+| `source/assets/donate-alipay.jpg` | 支付宝收款码 |
+| `source/assets/donate-wechat.png` | 微信收款码 |
+| `source/assets/DeepSeek-icon.png` | 标题栏图标 |
+
+`THIRD-PARTY-NOTICES.md` 记录了 Fluent System Icons 的 MIT 来源。
+
+---
+
+## 三、1.4.1 的实际功能
+
+### 设置窗口
+
+- 默认 `1200x720`，最小 `800x560`，可缩放、可最大化。
+- 48 像素自绘标题栏，标题是“DeepSeek Harness 启动器设置”。
+- 左侧 NavigationView，内容最大宽度 760。
+- 页面:常规、主题、API、提醒、服务、更新、关于。
+- 关于页内部包含作者区块，不是独立导航项。
+- 设置窗是启动器同进程内的 owner 窗口，关闭后销毁，再次打开重建。
+- 页面切换有淡入和轻微位移动画。
+
+### 常规
+
+- 端口模式:随机、固定、默认 3080。
+- 默认端口显示黄色安全提示。
+- 默认选择是固定端口 `8787`。
+- 已有 DSH 服务运行时，设置端口不会强行覆盖当前端口；
+  页面显示绿色“下次启动服务时生效”。
+- 如果启动器发现已有 DSH 端口和设置不一致，只弹 Windows 气泡。
+- 开机自启动立即写当前用户的自启配置。
+- 静默启动:全部、仅开机自启、关闭，只决定是否自动打开网页。
+
+### 主题
+
+- 主题:浅色、深色、跟随系统。
+- 主题色来源:跟随 Windows、自选。
+- 材质:云母、云母 Alt、轻薄亚克力、标准亚克力、纯色。
+- 设置窗、托盘菜单、更新进度窗、通知窗共用 `LauncherAppearance`。
+- Win11 使用圆角，Win10 使用直角。
+- Win11 左侧导航使用微软官方 Fluent System Icons 彩色 SVG。
+- Win10 保持单色 Fluent 字形。
+
+### API
+
+- API Key 使用 DPAPI 加密后写入 `LauncherSettings.json`。
+- 打开设置页时会异步读取并显示余额。
+- 格式不对时不保存并恢复原值。
+- 格式正确但远端验证失败时仍保存，并显示失败原因。
+- 清空 API Key 后不会再回退读取 DSH 的 `.credentials.yaml`。
+
+### 提醒
+
+- 更新提醒、服务启动提醒、充值提醒都有独立开关。
+- 今日消费提醒:`5/10/20/50/自定义`，默认全选。
+- 余额提醒:`20/10/5/1/自定义`，默认全选。
+- 多个余额/消费阈值同时触发时合并为一条通知。
+- 同一余额阈值跌落后，只有回升到阈值以上才重新武装。
+- 充值判定门槛是余额增加 `0.10` 元。
+- 第一次读取到的余额只建立基线，不判定充值。
+
+### 服务
+
+- DSH 目录:文件夹选择器，校验 `node_modules\@deepseek-ai\dsh\lib\bin.js`。
+- Node 路径:文件选择器，只接受 `node.exe`。
+- 服务正在运行时变更路径，只提示下次启动生效。
+- 重启服务时重新读取设置中的路径和端口。
+- DSH 目录变化会同步:
+  - `%LOCALAPPDATA%\DeepSeekHarness\installer-state.json`
+  - 已存在的卸载注册表项
+- 同时存在 HKLM/HKCU 卸载项时优先机器级。
+- 非安装器环境只写启动器自己的配置，不创建卸载注册表。
+
+### 更新
+
+- 更新源:加速源、官方源。
+- 启动器更新:自动下载并安装、仅检查更新、关闭。
+- DSH 更新:自动下载并安装、仅检查更新、关闭。
+- 检查周期:每次启动、三天、七天、一个月。
+- 周期从上次检查时间开始算，离线失败不额外重试。
+- 两个更新策略都关闭时，周期选项和更新提醒自动禁用。
+- 手动检查始终可用。
+- 手动检查按钮状态:
+  - `检测更新中`
+  - `已是新版本`
+  - `立即更新`
+  - 下载/安装进度
+- 更新线程属于启动器主进程，不依赖设置窗。
+- 关闭设置窗后更新继续。
+- 启动器更新只重启启动器，DSH 进程不动。
+- DSH 更新会停止并重启 DSH 服务，设置页显示“重启中”。
+
+### 托盘
+
+菜单顺序:
+
+1. 余额
+2. 分割线
+3. 打开页面
+4. 重启服务
+5. 强制停止
+6. 分割线
+7. 检查更新
+8. 设置
+9. 分割线
+10. 退出
+
+- 点击余额打开设置里的 API 页。
+- 设置按钮已加入和其他按钮一致的 hover/pressed 逻辑。
+- 空闲提示格式:`DSH运行中 · 剩余 ￥x.xx`。
+- Win11/Win10 圆角由 `CornerRadiusHelper` 统一。
+
+### 关于
+
+- 启动器版本。
+- GitHub 链接。
+- 打开启动器日志目录。
+- 作者信息:头像、名称、B站、抖音。
+- 头像只在第一次进入关于时调用 B 站 API，之后复用进程缓存。
+- 支付宝、微信收款码。
+
+---
+
+## 四、配置文件与数据位置
+
+### 启动器配置
+
+`%LOCALAPPDATA%\DeepSeekHarness\LauncherSettings.json`
+
+关键字段:
+
+- `portMode` / `fixedPort`
+- `startWithWindows`
+- `silentStart`
+- `theme` / `accentSource` / `accentColor` / `material`
+- `updateSource`
+- `launcherUpdateMode` / `dshUpdateMode` / `updateInterval`
+- `lastUpdateCheckUtc`
+- `lastNotifiedLauncherVersion` / `lastNotifiedDshVersion`
+- `apiKeyProtected`
+- `legacyApiKeyMigrationCompleted`
+- 提醒开关和阈值
+- `dshRoot` / `nodePath`
+
+旧数据迁移:
+
+- `<DSH根>\.dsh\launcher-api-key.bin`
+- `<DSH根>\.dsh\.credentials.yaml`
+- 启动器同目录的 `launcher.json`
+- 当前开机自启动状态
+
+### 日志
+
+- 启动器日志:`%LOCALAPPDATA%\DeepSeekHarness\launcher.log`
+- 启动早期日志:`%LOCALAPPDATA%\DeepSeekHarness\launcher-boot.log`
+- 更新替换日志:`<DSH根>\logs\update.log`
+- DSH 日志:`<DSH根>\logs`
+- 安装器日志:`%LOCALAPPDATA%\DeepSeekHarness\installer.log`
+
+### 更新临时目录
+
+- `%TEMP%\DeepSeekHarnessUpdate`
+- 替换前备份:`%TEMP%\DeepSeekHarnessBackup-*`
+
+---
+
+## 五、发布流程
+
+### 本地构建
+
+```powershell
+cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+.\release.ps1
+```
+
+产物:
+
+- `source\dist-1.4.1`
+- `DeepSeekHarness-1.4.1.zip`
+- 更新根目录 `manifest.json`
+- 生成 `manifest-1.4.1.json`
+
+自检:
+
+```powershell
+.\verify.ps1 -Dist '.\source\dist-1.4.1' -DshRoot 'G:\DeepSeek DSH'
+```
+
+### 发布顺序
+
+必须按此顺序，不能颠倒:
+
+1. 构建并更新本地 manifest。
+2. 发 npm:
+
+```powershell
+.\publish-npm.ps1 -ZipPath '.\DeepSeekHarness-1.4.1.zip'
+```
+
+3. 等 npmmirror 返回 200。
+4. 创建 GitHub Release、上传 zip、提交 main、推送 tag:
+
+```powershell
+.\publish-release.ps1 -Commit
+```
+
+5. 验证:
+   - `raw.githubusercontent.com/.../main/manifest.json`
+   - GitHub Release 资产 URL
+   - npmmirror tarball URL
+
+### 版本号位置
+
+1.4.1 涉及:
+
+- `source/DeepSeekHarness.csproj`
+- `source/app.manifest`
+- `source/RuntimeBootstrap.cs`
+- `source/RuntimeBootstrap.manifest`
+- `source/WinUIProgram.cs`
+- `source/SettingsWindow.xaml` 的关于页显示值
+- `CHANGELOG.md`
+
+`release.ps1` 会从 csproj 读版本并更新 manifest。
+
+---
+
+## 六、本轮已验证
+
+### 编译与静态自检
+
+- `release.ps1` 构建通过。
+- `verify.ps1` 通过，0 条提醒。
+- 产物包含 39 个 DLL，约 37.7 MB 解压后体积。
+- Windows App Runtime、.NET 8、Bootstrap.dll 检查通过。
+
+### 更新引擎
+
+实际调用已编译的 `UpdateSupport.PrepareStaging`:
+
+- 从 npmmirror 下载 `dsh-launcher-1.4.0.tgz`
+- 解出 zip
+- SHA256 与 manifest 完全一致
+- 解压后的核心程序版本是 `1.4.0.0`
+- `restart-launcher.cmd` 已改为短命令，避免 `schtasks /tr` 长参数失败
+
+1.4.1 发布时再次验证了 npm、npmmirror、GitHub 资产顺序和远端 manifest。
+
+### 页面
+
+以下页面做过运行时冒烟测试:
+
+- 更新页
+- 关于页
+- SettingsExpander
+- 关于作者头像流程
+
+头像 API 单独验证:
+
+- B站资料 API 返回成功
+- 头像 URL 返回 103776 字节
+- 进程内只缓存一次
+
+---
+
+## 七、真机 VM 验证状态
+
+当前 1.4.1 已由用户在虚拟机验证通过。以下项目保留为后续版本发布前的回归清单:
+
+1. Windows 10 1809 安装和启动。
+2. Windows 11 安装和启动。
+3. 从 1.3.21 升级到 1.4.x，确认配置迁移。
+4. 启动器自更新完整替换和自动重启。
+5. DSH 更新完整 npm 安装、重启、失败回滚。
+6. 卸载器是否能识别设置页改过的 `DshRoot`。
+7. 退出时异常弹窗是否彻底消失。
+8. 托盘菜单 hover、pressed、设置按钮焦点是否一致。
+9. Win10 直角、Win11 圆角的实际视觉。
+10. Win11 7 个导航彩色图标是否都能加载。
+
+VM 测试后重点看:
+
+- `%LOCALAPPDATA%\DeepSeekHarness\launcher.log`
+- `%LOCALAPPDATA%\DeepSeekHarness\launcher-boot.log`
+- `<DSH根>\logs\update.log`
+- `%LOCALAPPDATA%\DeepSeekHarness\installer.log`
+
+---
+
+## 八、虚拟机环境
+
+- Windows 10 1809(17763)
+- 用户:`KitamaruRamito`
+- IP:`192.168.188.130`
+- SSH 助手:
+  `G:\DeepSeek DSH\DSH Works\.fix-lasso-state\vm-ssh.ps1 -Script '<powershell>'`
+- 文件服务器:
+  `vm-server.ps1`，根目录 `vm-share\`，地址 `http://192.168.188.1:8899/`
+- 回滚快照后 sshd 可能被杀，跑 `fix-sshd.ps1`
+- 不要连续点击两次安装
+
+---
+
+## 九、已知风险
+
+1. **退出异常弹窗没有在干净 VM 上复现确认修复。**
+2. **DSH 更新没有真正对一台干净 DSH 执行完整 npm 升版和回滚。**
+3. **启动器自更新没有在真实旧版本上执行完整替换。**
+4. **安装器 1.0.1 的 Release 还没发。**
+5. **Win11 彩色 SVG 依赖 `ms-appx` 资源路径，发布包中要确认 7 个 SVG 都在。**
+6. **Fluent System Icons 使用 MIT，仓库已加 THIRD-PARTY-NOTICES.md。**
+7. **测试目录 `DeepSeekHarness-*/` 已加入 `.gitignore`，避免发布时误提交。**
+
+---
+
+## 十、继续开发前先读
+
+1. 先读本文件顶部。
+2. 再看 `RELEASE.md`。
+3. 再读 `CHANGELOG.md` 的 1.4.1 和 1.4.0。
+4. 修改设置 UI 前读 `SettingsWindow.xaml` 和 `SettingsWindowHost.cs`。
+5. 修改更新前读 `UpdateSupport.cs`、`DshUpdateService.cs`、`UpdateUiSnapshot.cs`。
+6. 修改主题/圆角前读 `LauncherAppearance.cs`、`CornerRadiusHelper.cs`。
+7. 修改路径/卸载前读 `InstallerRegistration.cs` 和安装器仓库的 `ConfigStore.cs`。
+
+---
+
+# 历史记录:2026-09-19 旧交接
+
+> 以下内容只用于查历史背景。旧版本号、旧待办和旧验证结论不要直接当作当前状态。
 
 ---
 
