@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: 检出
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 装 .NET 8 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
@@ -86,11 +86,39 @@ jobs:
         id: pack
 
       - name: 存成构建产物(手动试跑时也能下载)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: DSH-Launcher-${{ steps.meta.outputs.version }}
           path: ${{ steps.meta.outputs.zip }}
           if-no-files-found: error
+
+      # 本地发版脚本也会发 npm。若版本已经存在，重复 publish 必然失败，
+      # 而这里本来就不需要覆盖 npm —— 直接跳过，Release 仍然继续。
+      - name: 检查 npm 是否已有该版本
+        id: npm_state
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $package = '@yunxiramito/dsh-launcher'
+          $version = '${{ steps.meta.outputs.version }}'
+          $encoded = [uri]::EscapeDataString($package)
+          $url = "https://registry.npmjs.org/$encoded/$version"
+
+          try {
+            $response = Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing -TimeoutSec 30
+            if ($response.StatusCode -eq 200) {
+              Write-Host "$package@$version 已存在，跳过 npm 发布。"
+              "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              exit 0
+            }
+          }
+          catch {
+            $status = $_.Exception.Response.StatusCode.value__
+            if ($status -ne 404) { throw }
+          }
+
+          Write-Host "$package@$version 尚未发布，将继续走 npm 发布。"
+          "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       # 发到 npm —— 不是给谁 npm install,而是**借 npmmirror 的带宽**:
       # 国内直连 GitHub 只有几十到一百多 KB/s(10 MB 要磨几分钟),
@@ -101,7 +129,7 @@ jobs:
       # 需要仓库 secret NPM_TOKEN(带 bypass 2FA 的 npm token)。
       # 只在打 tag 时发:手动试跑重复发同版本号会直接撞车。
       - name: 发到 npm(npmmirror 会自动镜像)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.npm_state.outputs.exists != 'true'
         shell: pwsh
         run: |
           npm config set //registry.npmjs.org/:_authToken '${{ secrets.NPM_TOKEN }}'
@@ -110,7 +138,7 @@ jobs:
 
       - name: 发 Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ steps.meta.outputs.zip }}
           generate_release_notes: true
