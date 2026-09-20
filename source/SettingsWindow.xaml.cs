@@ -7,6 +7,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Graphics;
@@ -58,6 +59,7 @@ namespace DeepSeekHarnessLauncher
 
             Title = "DeepSeek Harness 启动器设置";
             VersionText.Text = "v" + Constants.Version;
+            ApplyAdaptiveIcons();
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
             LauncherAppearance.Register(
@@ -78,6 +80,10 @@ namespace DeepSeekHarnessLauncher
             _appWindow = AppWindow.GetFromWindowId(windowId);
 
             ConfigureWindow(windowId);
+            SettingsRoot.AddHandler(
+                UIElement.PointerPressedEvent,
+                new PointerEventHandler(SettingsRoot_PointerPressed),
+                true);
             LoadSettingsIntoControls();
             ApplyTheme();
             ApplyAccent();
@@ -94,6 +100,7 @@ namespace DeepSeekHarnessLauncher
             SettingsNavigationView.SelectedItem = GeneralNavItem;
             SelectPage("General");
             ApplyResponsiveLayout(SettingsRoot.ActualWidth > 0 ? SettingsRoot.ActualWidth : DefaultWindowWidth);
+            _ = RefreshApiBalanceAsync();
         }
 
         private static SettingsWindowHost CreatePreviewHost()
@@ -120,6 +127,53 @@ namespace DeepSeekHarnessLauncher
                 {
                     return "预览模式，未连接服务";
                 }
+            };
+        }
+
+        private void ApplyAdaptiveIcons()
+        {
+            if (CornerRadiusHelper.IsWindows11)
+            {
+                SetSvgIcon(GeneralNavItem, "general.svg");
+                SetSvgIcon(ThemeNavItem, "theme.svg");
+                SetSvgIcon(ApiNavItem, "api.svg");
+                SetSvgIcon(AlertsNavItem, "alerts.svg");
+                SetSvgIcon(ServiceNavItem, "service.svg");
+                SetSvgIcon(UpdatesNavItem, "updates.svg");
+                SetSvgIcon(AboutNavItem, "about.svg");
+                return;
+            }
+
+            SetFontIcon(GeneralNavItem, "\uE713");
+            SetFontIcon(ThemeNavItem, "\uE790");
+            SetFontIcon(ApiNavItem, "\uE8D7");
+            SetFontIcon(AlertsNavItem, "\uEA8F");
+            SetFontIcon(ServiceNavItem, "\uE9F5");
+            SetFontIcon(UpdatesNavItem, "\uE895");
+            SetFontIcon(AboutNavItem, "\uE946");
+        }
+
+        private static void SetSvgIcon(
+            NavigationViewItem item,
+            string fileName)
+        {
+            item.Icon = new ImageIcon
+            {
+                Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
+                    new Uri(
+                        "ms-appx:///assets/SettingsNavIcons/" + fileName))
+            };
+        }
+
+        private static void SetFontIcon(
+            NavigationViewItem item,
+            string glyph)
+        {
+            item.Icon = new FontIcon
+            {
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
+                    "Segoe Fluent Icons"),
+                Glyph = glyph
             };
         }
 
@@ -489,6 +543,7 @@ namespace DeepSeekHarnessLauncher
             ServiceStatusText.Text = _host.GetServiceStatus();
             PortChangeInfoBar.IsOpen = IsServiceRunning();
             RefreshUpdateStates();
+            _ = RefreshApiBalanceAsync();
 
             if (!String.IsNullOrEmpty(pageTag))
             {
@@ -959,6 +1014,34 @@ namespace DeepSeekHarnessLauncher
             ApiKeyStatusInfoBar.IsOpen = true;
         }
 
+        private async System.Threading.Tasks.Task RefreshApiBalanceAsync()
+        {
+            string apiKey = LauncherSettingsStore.ReadApiKey(_settings);
+            if (String.IsNullOrWhiteSpace(apiKey))
+            {
+                BalanceValueText.Text = "未配置";
+                BalanceUpdatedText.Text = "等待 API Key";
+                return;
+            }
+
+            BalanceValueText.Text = "查询中…";
+            BalanceUpdatedText.Text = "正在读取余额";
+            BalanceResult result = await System.Threading.Tasks.Task.Run(
+                delegate { return DeepSeekBalanceClient.Fetch(apiKey); });
+            if (result.Ok)
+            {
+                BalanceValueText.Text = result.Display;
+                BalanceUpdatedText.Text =
+                    result.UpdatedAtUtc.ToLocalTime().ToString("HH:mm:ss")
+                    + " 更新";
+            }
+            else
+            {
+                BalanceValueText.Text = "查询失败";
+                BalanceUpdatedText.Text = result.Error;
+            }
+        }
+
         private void UpdateModeComboBox_SelectionChanged(
             object sender,
             SelectionChangedEventArgs args)
@@ -1219,9 +1302,38 @@ namespace DeepSeekHarnessLauncher
         private void SettingsWindow_Closed(object sender, WindowEventArgs args)
         {
             SettingsRoot.SizeChanged -= SettingsRoot_SizeChanged;
+            SettingsRoot.RemoveHandler(
+                UIElement.PointerPressedEvent,
+                new PointerEventHandler(SettingsRoot_PointerPressed));
             _host.UpdateStateChanged -= Host_UpdateStateChanged;
             LauncherAppearance.Unregister(this);
             Destroyed();
+        }
+
+        private void SettingsRoot_PointerPressed(
+            object sender,
+            PointerRoutedEventArgs args)
+        {
+            DependencyObject current = args.OriginalSource as DependencyObject;
+            while (current != null && !ReferenceEquals(current, SettingsRoot))
+            {
+                if (current is NumberBox
+                    || current is TextBox
+                    || current is PasswordBox
+                    || current is ComboBox
+                    || current is Microsoft.UI.Xaml.Controls.Button
+                    || current is CheckBox
+                    || current is RadioButton
+                    || current is ToggleSwitch
+                    || current is Slider)
+                {
+                    return;
+                }
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            SettingsNavigationView.Focus(FocusState.Programmatic);
         }
 
         private double GetDpiScale()

@@ -15,12 +15,26 @@ namespace DeepSeekHarnessLauncher
 
         protected override void OnLaunched(LaunchActivatedEventArgs arguments)
         {
+            try
+            {
+                CornerRadiusHelper.ApplyApplicationResources(Resources);
+            }
+            catch (Exception exception)
+            {
+                WriteAppLog("[theme] corner radius setup failed: " + exception);
+            }
+
             Program.OnApplicationLaunched();
         }
 
         private static void App_UnhandledException(
             object sender,
             Microsoft.UI.Xaml.UnhandledExceptionEventArgs args)
+        {
+            WriteAppLog("[unhandled] " + args.Exception);
+        }
+
+        private static void WriteAppLog(string message)
         {
             try
             {
@@ -32,8 +46,8 @@ namespace DeepSeekHarnessLauncher
                 File.AppendAllText(
                     Path.Combine(directory, "launcher-boot.log"),
                     DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-                    + "  [unhandled] "
-                    + args.Exception
+                    + "  "
+                    + message
                     + Environment.NewLine,
                     new UTF8Encoding(false));
             }

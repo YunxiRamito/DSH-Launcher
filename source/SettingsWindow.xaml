@@ -35,7 +35,7 @@
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
                 <Setter Property="Padding" Value="16,12" />
             </Style>
 
@@ -59,7 +59,7 @@
                 <Setter Property="MinWidth" Value="104" />
                 <Setter Property="Height" Value="34" />
                 <Setter Property="Padding" Value="12,0" />
-                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
@@ -67,7 +67,7 @@
                 <Setter Property="MinWidth" Value="104" />
                 <Setter Property="Height" Value="34" />
                 <Setter Property="Padding" Value="12,0" />
-                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
@@ -75,7 +75,7 @@
                 <Setter Property="MinWidth" Value="72" />
                 <Setter Property="Height" Value="32" />
                 <Setter Property="Padding" Value="10,0" />
-                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
@@ -293,7 +293,7 @@
                                         Maximum="65535"
                                         SmallChange="1"
                                         SpinButtonPlacementMode="Compact"
-                                        Style="{StaticResource SettingsNumberBoxStyle}"
+                                        MinWidth="104" Width="104" Height="32" HorizontalAlignment="Right" VerticalAlignment="Center"
                                         Value="8787" />
                                 </Grid>
 
@@ -334,8 +334,6 @@
                                     x:Name="StartWithWindowsToggle"
                                     Grid.Column="1"
                                     HorizontalAlignment="Right"
-                                    OnContent="开启"
-                                    OffContent="关闭"
                                     VerticalAlignment="Center"
                                     IsOn="True" />
                             </Grid>
@@ -361,7 +359,7 @@
                                     x:Name="SilentStartComboBox"
                                     Grid.Column="1"
                                     SelectedIndex="0"
-                                    Style="{StaticResource SettingsComboBoxStyle}">
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <ComboBoxItem Content="全部" Tag="All" />
                                     <ComboBoxItem Content="仅开机自启" Tag="StartupOnly" />
                                     <ComboBoxItem Content="关闭" Tag="Off" />
@@ -401,7 +399,7 @@
                                     Grid.Column="1"
                                     SelectedIndex="2"
                                     SelectionChanged="ThemeComboBox_SelectionChanged"
-                                    Style="{StaticResource SettingsComboBoxStyle}">
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <ComboBoxItem Content="浅色" Tag="Light" />
                                     <ComboBoxItem Content="深色" Tag="Dark" />
                                     <ComboBoxItem Content="跟随系统" Tag="System" />
@@ -459,7 +457,7 @@
                                             Width="20"
                                             Height="20"
                                             Background="#0A84FF"
-                                            CornerRadius="4" />
+                                            CornerRadius="{ThemeResource ControlCornerRadius}" />
                                     </Button>
                                 </StackPanel>
                             </Grid>
@@ -486,7 +484,7 @@
                                     Grid.Column="1"
                                     SelectedIndex="0"
                                     SelectionChanged="MaterialComboBox_SelectionChanged"
-                                    Style="{StaticResource SettingsComboBoxStyle}">
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <ComboBoxItem Content="云母" Tag="Mica" />
                                     <ComboBoxItem Content="云母 Alt" Tag="MicaAlt" />
                                     <ComboBoxItem Content="轻薄亚克力" Tag="AcrylicThin" />
@@ -621,8 +619,6 @@
                                     Grid.Column="1"
                                     HorizontalAlignment="Right"
                                     IsOn="True"
-                                    OffContent="关闭"
-                                    OnContent="开启"
                                     VerticalAlignment="Center" />
                             </Grid>
                         </Border>
@@ -648,8 +644,6 @@
                                     Grid.Column="1"
                                     HorizontalAlignment="Right"
                                     IsOn="True"
-                                    OffContent="关闭"
-                                    OnContent="开启"
                                     VerticalAlignment="Center" />
                             </Grid>
                         </Border>
@@ -675,8 +669,6 @@
                                     Grid.Column="1"
                                     HorizontalAlignment="Right"
                                     IsOn="True"
-                                    OffContent="关闭"
-                                    OnContent="开启"
                                     VerticalAlignment="Center" />
                             </Grid>
                         </Border>
@@ -835,7 +827,7 @@
                                     <TextBox
                                         x:Name="DshPathBox"
                                         PlaceholderText="选择 DSH 安装目录"
-                                        Style="{StaticResource SettingsPathBoxStyle}"
+                                        MinWidth="300" Height="32" HorizontalAlignment="Stretch" IsReadOnly="True" VerticalAlignment="Center" VerticalContentAlignment="Center"
                                         Text="" />
                                     <Button
                                         Grid.Column="1"
@@ -871,7 +863,7 @@
                                     <TextBox
                                         x:Name="NodePathBox"
                                         PlaceholderText="选择用于启动服务的 node.exe"
-                                        Style="{StaticResource SettingsPathBoxStyle}"
+                                        MinWidth="300" Height="32" HorizontalAlignment="Stretch" IsReadOnly="True" VerticalAlignment="Center" VerticalContentAlignment="Center"
                                         Text="" />
                                     <Button
                                         Grid.Column="1"
@@ -961,7 +953,7 @@
                                         x:Name="UpdateSourceComboBox"
                                         Grid.Column="1"
                                         SelectedIndex="0"
-                                        Style="{StaticResource SettingsComboBoxStyle}">
+                                        MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                         <ComboBoxItem Content="加速源" Tag="Accelerated" />
                                         <ComboBoxItem Content="官方源" Tag="Official" />
                                     </ComboBox>
@@ -977,7 +969,7 @@
                                 x:Name="LauncherUpdateModeComboBox"
                                 SelectedIndex="0"
                                 SelectionChanged="UpdateModeComboBox_SelectionChanged"
-                                Style="{StaticResource SettingsComboBoxStyle}">
+                                MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                 <ComboBoxItem Content="自动下载并安装" Tag="Install" />
                                 <ComboBoxItem Content="仅检查更新" Tag="Check" />
                                 <ComboBoxItem Content="关闭" Tag="Off" />
@@ -991,8 +983,7 @@
                                         Content="立即检查"
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard>
-                                    <StackPanel Spacing="8">
+                                <toolkit:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch"><StackPanel Spacing="8" HorizontalAlignment="Stretch">
                                         <StackPanel
                                             x:Name="LauncherUpdateProgressPanel"
                                             Spacing="6"
@@ -1025,7 +1016,7 @@
                                     x:Name="DshUpdateModeComboBox"
                                     SelectedIndex="2"
                                     SelectionChanged="UpdateModeComboBox_SelectionChanged"
-                                    Style="{StaticResource SettingsComboBoxStyle}">
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <ComboBoxItem Content="自动下载并安装" Tag="Install" />
                                     <ComboBoxItem Content="仅检查更新" Tag="Check" />
                                     <ComboBoxItem Content="关闭" Tag="Off" />
@@ -1047,8 +1038,7 @@
                                         Content="立即检查"
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard>
-                                    <StackPanel Spacing="8">
+                                <toolkit:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch"><StackPanel Spacing="8" HorizontalAlignment="Stretch">
                                         <StackPanel
                                             x:Name="DshUpdateProgressPanel"
                                             Spacing="6"
@@ -1092,7 +1082,7 @@
                                     x:Name="UpdateIntervalComboBox"
                                     Grid.Column="1"
                                     SelectedIndex="0"
-                                    Style="{StaticResource SettingsComboBoxStyle}">
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <ComboBoxItem Content="每次启动" Tag="EveryStart" />
                                     <ComboBoxItem Content="三天" Tag="ThreeDays" />
                                     <ComboBoxItem Content="七天" Tag="SevenDays" />
@@ -1133,7 +1123,7 @@
                                     VerticalAlignment="Center"
                                     FontSize="14"
                                     FontWeight="SemiBold"
-                                    Text="v1.4.0" />
+                                    Text="v1.4.1" />
                             </Grid>
                         </Border>
 
@@ -1261,7 +1251,7 @@
                                             Width="180"
                                             Height="180"
                                             Background="White"
-                                            CornerRadius="8">
+                                            CornerRadius="{ThemeResource ControlCornerRadius}">
                                             <Image
                                                 Source="ms-appx:///assets/donate-alipay.jpg"
                                                 Stretch="UniformToFill" />
@@ -1276,7 +1266,7 @@
                                             Width="180"
                                             Height="180"
                                             Background="White"
-                                            CornerRadius="8">
+                                            CornerRadius="{ThemeResource ControlCornerRadius}">
                                             <Image
                                                 Source="ms-appx:///assets/donate-wechat.png"
                                                 Stretch="UniformToFill" />

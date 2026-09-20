@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.4.0";
+        public const string Version = "1.4.1";
         public const int TrayIconId = 1;
     }
 
@@ -1152,6 +1152,7 @@ namespace DeepSeekHarnessLauncher
         private DispatcherQueueTimer _apiPromptTimer;
         private string _apiKey;
         private string _lastBalanceText;
+        private string _lastBalanceDisplay = String.Empty;
         private string _balanceToolTip = "点击修改 API 设置。";
         private DateTime _lastBalanceUpdatedUtc;
         private int _balanceRequestInProgress;
@@ -1765,6 +1766,24 @@ namespace DeepSeekHarnessLauncher
             }
 
             bool hasUpdate = !string.IsNullOrEmpty(_availableUpdateVersion);
+            bool installWhenAvailable = String.Equals(
+                _settings.LauncherUpdateMode,
+                "Install",
+                StringComparison.OrdinalIgnoreCase);
+            if (hasUpdate && !installWhenAvailable)
+            {
+                if (_settings.UpdateReminder)
+                {
+                    ShowNotification(
+                        "发现启动器新版本 v"
+                        + _availableUpdateVersion
+                        + "。",
+                        false);
+                }
+
+                return;
+            }
+
             if (hasUpdate)
             {
                 WinFormsDialogResult answer = WinFormsMessageBox.Show(
@@ -1781,6 +1800,12 @@ namespace DeepSeekHarnessLauncher
 
             _updateInProgress = true;
             _trayIcon.UpdateTip(Constants.Title + " 正在检查更新…");
+            bool useUpdateWindow = installWhenAvailable;
+            if (useUpdateWindow)
+            {
+                ShowUpdateWindow();
+                UpdateWindow("正在检查更新", "正在读取版本清单", -1);
+            }
 
             Thread worker = new Thread(delegate()
             {
@@ -1790,6 +1815,17 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 if (string.IsNullOrEmpty(_availableUpdateVersion))
+                {
+                    _updateInProgress = false;
+                    InvokeOnUi(delegate()
+                    {
+                        FinishUpdateWindow();
+                        _trayIcon.UpdateTip(Constants.Title + " 正在运行");
+                    });
+                    return;
+                }
+
+                if (!useUpdateWindow)
                 {
                     _updateInProgress = false;
                     InvokeOnUi(delegate()
@@ -2116,6 +2152,11 @@ namespace DeepSeekHarnessLauncher
                     0,
                     true,
                     String.Empty);
+                ShowUpdateWindow();
+                UpdateWindow(
+                    "正在更新 DSH",
+                    "下载并安装 v" + latest,
+                    -1);
                 if (_settings.UpdateReminder)
                 {
                     ShowNotification(
@@ -2124,6 +2165,10 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 StopService();
+                UpdateWindow(
+                    "正在安装 DSH",
+                    "请不要关闭软件",
+                    -1);
                 string installError;
                 bool installedOk = DshUpdateService.InstallVersion(
                     _settings.DshRoot,
@@ -2177,6 +2222,10 @@ namespace DeepSeekHarnessLauncher
                     }
                 }
 
+                UpdateWindow(
+                    "正在重启 DSH",
+                    "等待服务重新就绪",
+                    -1);
                 RestartThreadProc();
                 if (installedOk)
                 {
@@ -2195,6 +2244,7 @@ namespace DeepSeekHarnessLauncher
             }
             finally
             {
+                FinishUpdateWindow();
                 _dshUpdateInProgress = false;
             }
         }
@@ -2726,6 +2776,7 @@ namespace DeepSeekHarnessLauncher
         {
             if (result.Ok)
             {
+                _lastBalanceDisplay = result.Display;
                 _lastBalanceText = "余额：" + result.Display;
                 _lastBalanceUpdatedUtc = result.UpdatedAtUtc;
                 _balanceToolTip = "点击修改 API 设置。更新时间："
@@ -2737,6 +2788,7 @@ namespace DeepSeekHarnessLauncher
 
                 _trayMenu.SetBalance(_lastBalanceText, _balanceToolTip);
                 _trayMenu.SetRunning(_serviceRunning);
+                UpdateTrayToolTip();
 
                 if (alertUpdate != null && !String.IsNullOrEmpty(alertUpdate.Notification))
                 {
@@ -2779,6 +2831,8 @@ namespace DeepSeekHarnessLauncher
             _lastBalanceText = "余额：未配置（点击设置 API）";
             _balanceToolTip = "点击后填写 DeepSeek API Key，保存后自动刷新余额。";
             _trayMenu.SetBalance(_lastBalanceText, _balanceToolTip);
+            _lastBalanceDisplay = String.Empty;
+            UpdateTrayToolTip();
         }
 
         private static Icon LoadAppIcon()
@@ -3135,6 +3189,24 @@ namespace DeepSeekHarnessLauncher
         {
             _serviceRunning = running;
             _trayMenu.SetRunning(running);
+            _trayIcon.UpdateTip(tooltip);
+            UpdateTrayToolTip();
+        }
+
+        private void UpdateTrayToolTip()
+        {
+            if (!_serviceRunning)
+            {
+                return;
+            }
+
+            string tooltip = "DSH运行中";
+            if (!String.IsNullOrWhiteSpace(_lastBalanceDisplay))
+            {
+                tooltip += " · 剩余 "
+                    + _lastBalanceDisplay.Replace('¥', '￥');
+            }
+
             _trayIcon.UpdateTip(tooltip);
         }
 
@@ -3497,11 +3569,8 @@ namespace DeepSeekHarnessLauncher
             try
             {
                 _balanceTimer.Stop();
-                if (_settingsWindow != null)
-                {
-                    _settingsWindow.Close();
-                    _settingsWindow = null;
-                }
+                _settingsWindow = null;
+                _settingsHost = null;
 
                 if (_openPageWait != null)
                 {
@@ -4242,7 +4311,7 @@ namespace DeepSeekHarnessLauncher
             Style style = new Style(typeof(MenuFlyoutPresenter));
             style.Setters.Add(new Setter(
                 MenuFlyoutPresenter.CornerRadiusProperty,
-                new CornerRadius(8)));
+                CornerRadiusHelper.SurfaceRadius));
             style.Setters.Add(new Setter(
                 Microsoft.UI.Xaml.Controls.Control.PaddingProperty,
                 new Thickness(4)));
@@ -4408,7 +4477,7 @@ namespace DeepSeekHarnessLauncher
             {
                 Width = MenuWidth,
                 Padding = new Thickness(5),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = CornerRadiusHelper.SurfaceRadius,
                 BorderThickness = new Thickness(0),
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Child = _itemsPanel
@@ -4890,7 +4959,7 @@ namespace DeepSeekHarnessLauncher
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(5),
+                CornerRadius = CornerRadiusHelper.ControlRadius,
                 IsTabStop = false,
                 UseSystemFocusVisuals = false,
                 FocusVisualPrimaryThickness = new Thickness(0),
@@ -5044,7 +5113,7 @@ namespace DeepSeekHarnessLauncher
             {
                 Width = MenuWidth,
                 Padding = new Thickness(5),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = CornerRadiusHelper.SurfaceRadius,
                 BorderThickness = new Thickness(0),
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 Child = items
@@ -5292,7 +5361,7 @@ namespace DeepSeekHarnessLauncher
                     HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
                     Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                     BorderThickness = new Thickness(0),
-                    CornerRadius = new CornerRadius(5)
+                    CornerRadius = CornerRadiusHelper.ControlRadius
                 };
             return button;
         }
@@ -5646,7 +5715,7 @@ namespace DeepSeekHarnessLauncher
             {
                 Width = 38,
                 Height = 38,
-                CornerRadius = new CornerRadius(9),
+                CornerRadius = CornerRadiusHelper.SurfaceRadius,
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 43, 57)),
                 HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center
@@ -5713,7 +5782,7 @@ namespace DeepSeekHarnessLauncher
             Border accent = new Border
             {
                 Width = 4,
-                CornerRadius = new CornerRadius(2),
+                CornerRadius = CornerRadiusHelper.BadgeRadius,
                 Background = new SolidColorBrush(borderColor),
                 HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
                 Margin = new Thickness(-12, 0, 10, 0)

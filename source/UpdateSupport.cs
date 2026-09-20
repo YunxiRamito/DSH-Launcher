@@ -611,6 +611,10 @@ namespace DeepSeekHarnessLauncher
         public static void ApplyUpdateAndExit(string newFilesDirectory, string installDirectory)
         {
             string scriptPath = Path.Combine(Path.GetTempPath(), "DeepSeekHarnessUpdate", "apply-update.ps1");
+            string restartCommandPath = Path.Combine(
+                Path.GetTempPath(),
+                "DeepSeekHarnessUpdate",
+                "restart-launcher.cmd");
             string logPath = Path.Combine(installDirectory, "logs", "update.log");
 
             // 把「可执行文件 + 参数」拼成一条完整的命令行。
@@ -619,12 +623,23 @@ namespace DeepSeekHarnessLauncher
                 "\"" + Path.Combine(installDirectory, "DeepSeek Harness.exe") + "\" "
                 + "--no-browser --updated=" + Constants.Version;
 
+            string restartCommand =
+                "@echo off" + Environment.NewLine
+                + "chcp 65001 >nul" + Environment.NewLine
+                + "start \"\" /d \"" + installDirectory + "\" "
+                + launcherCommand + Environment.NewLine;
+            Directory.CreateDirectory(Path.GetDirectoryName(restartCommandPath));
+            File.WriteAllText(
+                restartCommandPath,
+                restartCommand,
+                new UTF8Encoding(false));
+
             string script = BuildApplyScript(
                 installDirectory,
                 newFilesDirectory,
                 Program.PreviousProcessId,
                 logPath,
-                launcherCommand,
+                restartCommandPath,
                 Constants.Version);
 
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
@@ -656,7 +671,7 @@ namespace DeepSeekHarnessLauncher
             string newFilesDirectory,
             int processId,
             string logPath,
-            string launcherCommand,
+            string restartCommandPath,
             string newVersion)
         {
             StringBuilder builder = new StringBuilder();
@@ -706,7 +721,7 @@ namespace DeepSeekHarnessLauncher
             // so no UAC prompt and the tray really comes back.
             builder.AppendLine("W 'restarting launcher via scheduled task (no browser, keep DSH running)'");
             builder.AppendLine("$task = 'DeepSeekHarnessUpdateRestart'");
-            builder.AppendLine("$tr = '\"' + $launcher + '\" --no-browser --updated=' + $newVersion");
+            builder.AppendLine("$tr = '\"' + " + Quote(restartCommandPath) + " + '\"'");
             builder.AppendLine("schtasks.exe /delete /tn $task /f 2>&1 | Out-Null");
             builder.AppendLine("$out = schtasks.exe /create /tn $task /tr $tr /sc once /st 23:59 /it /f /rl highest 2>&1");
             builder.AppendLine("W ('create task: ' + ($out -join ' '))");
@@ -714,6 +729,7 @@ namespace DeepSeekHarnessLauncher
             builder.AppendLine("W ('run task: ' + ($out2 -join ' '))");
             builder.AppendLine("Start-Sleep -Seconds 3");
             builder.AppendLine("schtasks.exe /delete /tn $task /f 2>&1 | Out-Null");
+            builder.AppendLine("Remove-Item -LiteralPath " + Quote(restartCommandPath) + " -Force -ErrorAction SilentlyContinue");
             builder.AppendLine("W 'restart command issued'");
             builder.AppendLine("W 'done'");
             return builder.ToString();

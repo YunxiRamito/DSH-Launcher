@@ -82,7 +82,7 @@ namespace DeepSeekHarnessLauncher
 
             Border surface = new Border
             {
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = CornerRadiusHelper.SurfaceRadius,
                 Background = GetSurfaceBrush(),
                 Child = panel
             };
