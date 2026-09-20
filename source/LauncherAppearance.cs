@@ -44,6 +44,7 @@ namespace DeepSeekHarnessLauncher
 
         private static LauncherMaterialKind _material = LauncherMaterialKind.Mica;
         private static ElementTheme _theme = ElementTheme.Default;
+        private static bool _shuttingDown;
 
         internal static LauncherMaterialKind Material
         {
@@ -87,6 +88,11 @@ namespace DeepSeekHarnessLauncher
 
         internal static void Unregister(Window window)
         {
+            if (_shuttingDown)
+            {
+                return;
+            }
+
             WindowRegistration registration = Find(window);
             if (registration == null)
             {
@@ -95,6 +101,12 @@ namespace DeepSeekHarnessLauncher
 
             DisposeControllers(registration);
             Registrations.Remove(registration);
+        }
+
+        internal static void BeginShutdown()
+        {
+            _shuttingDown = true;
+            Registrations.Clear();
         }
 
         internal static void SetTheme(ElementTheme theme)
@@ -255,6 +267,13 @@ namespace DeepSeekHarnessLauncher
 
         private static void DisposeControllers(WindowRegistration registration)
         {
+            if (_shuttingDown)
+            {
+                registration.MicaController = null;
+                registration.AcrylicController = null;
+                return;
+            }
+
             if (registration.MicaController != null)
             {
                 try

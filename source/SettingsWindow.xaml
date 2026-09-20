@@ -1123,7 +1123,7 @@
                                     VerticalAlignment="Center"
                                     FontSize="14"
                                     FontWeight="SemiBold"
-                                    Text="v1.4.1" />
+                                    Text="v1.4.2" />
                             </Grid>
                         </Border>
 

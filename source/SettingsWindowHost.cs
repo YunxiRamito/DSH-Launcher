@@ -26,10 +26,16 @@ namespace DeepSeekHarnessLauncher
         public Action<string> Log { get; set; } = delegate { };
 
         public event Action UpdateStateChanged = delegate { };
+        public event Action ServiceStateChanged = delegate { };
 
         public void RaiseUpdateStateChanged()
         {
             UpdateStateChanged();
+        }
+
+        public void RaiseServiceStateChanged()
+        {
+            ServiceStateChanged();
         }
     }
 }

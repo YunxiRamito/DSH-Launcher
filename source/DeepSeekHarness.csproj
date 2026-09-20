@@ -22,9 +22,9 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <Version>1.4.1</Version>
-    <AssemblyVersion>1.4.1.0</AssemblyVersion>
-    <FileVersion>1.4.1.0</FileVersion>
+    <Version>1.4.2</Version>
+    <AssemblyVersion>1.4.2.0</AssemblyVersion>
+    <FileVersion>1.4.2.0</FileVersion>
     <Product>DeepSeek Harness</Product>
     <Title>DeepSeek Harness</Title>
     <AssemblyTitle>DeepSeek Harness</AssemblyTitle>
@@ -44,6 +44,8 @@
     <Content Include="assets\donate-alipay.jpg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\donate-wechat.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\SettingsNavIcons\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\SettingsNavIconsWin10\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\SettingsNavIconsWin10Dark\*.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

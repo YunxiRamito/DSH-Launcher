@@ -59,7 +59,6 @@ namespace DeepSeekHarnessLauncher
 
             Title = "DeepSeek Harness 启动器设置";
             VersionText.Text = "v" + Constants.Version;
-            ApplyAdaptiveIcons();
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
             LauncherAppearance.Register(
@@ -86,6 +85,7 @@ namespace DeepSeekHarnessLauncher
                 true);
             LoadSettingsIntoControls();
             ApplyTheme();
+            ApplyAdaptiveIcons();
             ApplyAccent();
             LauncherAppearance.SetMaterial(
                 ResolveMaterial(_settings.Material));
@@ -94,6 +94,7 @@ namespace DeepSeekHarnessLauncher
             WireSettingsEvents();
 
             SettingsRoot.SizeChanged += SettingsRoot_SizeChanged;
+            SettingsRoot.ActualThemeChanged += SettingsRoot_ActualThemeChanged;
             Closed += SettingsWindow_Closed;
 
             _initializing = false;
@@ -132,49 +133,41 @@ namespace DeepSeekHarnessLauncher
 
         private void ApplyAdaptiveIcons()
         {
-            if (CornerRadiusHelper.IsWindows11)
-            {
-                SetSvgIcon(GeneralNavItem, "general.svg");
-                SetSvgIcon(ThemeNavItem, "theme.svg");
-                SetSvgIcon(ApiNavItem, "api.svg");
-                SetSvgIcon(AlertsNavItem, "alerts.svg");
-                SetSvgIcon(ServiceNavItem, "service.svg");
-                SetSvgIcon(UpdatesNavItem, "updates.svg");
-                SetSvgIcon(AboutNavItem, "about.svg");
-                return;
-            }
-
-            SetFontIcon(GeneralNavItem, "\uE713");
-            SetFontIcon(ThemeNavItem, "\uE790");
-            SetFontIcon(ApiNavItem, "\uE8D7");
-            SetFontIcon(AlertsNavItem, "\uEA8F");
-            SetFontIcon(ServiceNavItem, "\uE9F5");
-            SetFontIcon(UpdatesNavItem, "\uE895");
-            SetFontIcon(AboutNavItem, "\uE946");
+            string folder = CornerRadiusHelper.IsWindows11
+                ? "SettingsNavIcons"
+                : (SettingsRoot.ActualTheme == ElementTheme.Dark
+                    ? "SettingsNavIconsWin10Dark"
+                    : "SettingsNavIconsWin10");
+            SetSvgIcon(GeneralNavItem, folder, "general.svg");
+            SetSvgIcon(ThemeNavItem, folder, "theme.svg");
+            SetSvgIcon(ApiNavItem, folder, "api.svg");
+            SetSvgIcon(AlertsNavItem, folder, "alerts.svg");
+            SetSvgIcon(ServiceNavItem, folder, "service.svg");
+            SetSvgIcon(UpdatesNavItem, folder, "updates.svg");
+            SetSvgIcon(AboutNavItem, folder, "about.svg");
         }
 
         private static void SetSvgIcon(
             NavigationViewItem item,
+            string folder,
             string fileName)
         {
             item.Icon = new ImageIcon
             {
                 Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(
                     new Uri(
-                        "ms-appx:///assets/SettingsNavIcons/" + fileName))
+                        "ms-appx:///assets/"
+                        + folder
+                        + "/"
+                        + fileName))
             };
         }
 
-        private static void SetFontIcon(
-            NavigationViewItem item,
-            string glyph)
+        private void SettingsRoot_ActualThemeChanged(
+            FrameworkElement sender,
+            object args)
         {
-            item.Icon = new FontIcon
-            {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
-                    "Segoe Fluent Icons"),
-                Glyph = glyph
-            };
+            ApplyAdaptiveIcons();
         }
 
         private void LoadSettingsIntoControls()
@@ -221,7 +214,7 @@ namespace DeepSeekHarnessLauncher
             DshPathBox.Text = _settings.DshRoot ?? String.Empty;
             NodePathBox.Text = _settings.NodePath ?? String.Empty;
             ApiKeyBox.Password = LauncherSettingsStore.ReadApiKey(_settings);
-            ServiceStatusText.Text = _host.GetServiceStatus();
+            RefreshServiceState();
             UpdateCustomThresholdStates();
         }
 
@@ -264,12 +257,12 @@ namespace DeepSeekHarnessLauncher
             RestartServiceButton.Click += delegate
             {
                 _host.RestartService();
-                ServiceStatusText.Text = _host.GetServiceStatus();
+                RefreshServiceState();
             };
             StopServiceButton.Click += delegate
             {
                 _host.StopService();
-                ServiceStatusText.Text = _host.GetServiceStatus();
+                RefreshServiceState();
             };
             RecheckEnvironmentButton.Click += delegate
             {
@@ -302,12 +295,18 @@ namespace DeepSeekHarnessLauncher
                 }
             };
             _host.UpdateStateChanged += Host_UpdateStateChanged;
+            _host.ServiceStateChanged += Host_ServiceStateChanged;
             RefreshUpdateStates();
         }
 
         private void Host_UpdateStateChanged()
         {
             RefreshUpdateStates();
+        }
+
+        private void Host_ServiceStateChanged()
+        {
+            RefreshServiceState();
         }
 
         private void RefreshUpdateStates()
@@ -540,8 +539,7 @@ namespace DeepSeekHarnessLauncher
 
         public void ShowWindow(string pageTag)
         {
-            ServiceStatusText.Text = _host.GetServiceStatus();
-            PortChangeInfoBar.IsOpen = IsServiceRunning();
+            RefreshServiceState();
             RefreshUpdateStates();
             _ = RefreshApiBalanceAsync();
 
@@ -793,6 +791,17 @@ namespace DeepSeekHarnessLauncher
             return _host.GetServiceStatus()?.IndexOf(
                 "正在运行",
                 StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void RefreshServiceState()
+        {
+            bool running = IsServiceRunning();
+            ServiceStatusText.Text = _host.GetServiceStatus();
+            RestartServiceButton.Content = running
+                ? "重启服务"
+                : "启动服务";
+            StopServiceButton.IsEnabled = running;
+            PortChangeInfoBar.IsOpen = running;
         }
 
         private void ThemeComboBox_SelectionChanged(

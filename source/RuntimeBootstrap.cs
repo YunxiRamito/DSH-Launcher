@@ -11,9 +11,9 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("高性能萝卜子鲸鲸有限公司")]
 [assembly: AssemblyDescription("这是由高性能萝卜子编写的启动高性能萝卜子的启动器喵")]
 [assembly: AssemblyCopyright("Copyright © 2026 Deepseek/KitamaruRamito")]
-[assembly: AssemblyVersion("1.4.1.0")]
-[assembly: AssemblyFileVersion("1.4.1.0")]
-[assembly: AssemblyInformationalVersion("1.4.1")]
+[assembly: AssemblyVersion("1.4.2.0")]
+[assembly: AssemblyFileVersion("1.4.2.0")]
+[assembly: AssemblyInformationalVersion("1.4.2")]
 
 namespace DeepSeekHarnessBootstrap
 {

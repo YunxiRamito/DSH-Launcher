@@ -40,7 +40,7 @@ namespace DeepSeekHarnessLauncher
     internal static class Constants
     {
         public const string Title = "DeepSeek Harness";
-        public const string Version = "1.4.1";
+        public const string Version = "1.4.2";
         public const int TrayIconId = 1;
     }
 
@@ -1169,9 +1169,11 @@ namespace DeepSeekHarnessLauncher
         /// <summary>自更新状态。</summary>
         private volatile bool _updateInProgress;
         private volatile bool _dshUpdateInProgress;
+        private volatile bool _launcherUpdateRestartPending;
         private string _availableUpdateVersion;
         private UpdateManifest _pendingManifest;
         private DateTime _updateDownloadStartedUtc;
+        private string _pendingUpdateNotification = String.Empty;
         private string _launcherDirectory;
         private UpdateProgressWindow _updateWindow;
         private SettingsWindow _settingsWindow;
@@ -1325,42 +1327,81 @@ namespace DeepSeekHarnessLauncher
 
         public void Start()
         {
+            // 刚更新完重启回来的,先记下结果,避免启动线程先跑完弹出普通启动通知。
+            string updatedFrom = Program.ConsumeUpdatedVersion();
+            if (!string.IsNullOrEmpty(updatedFrom))
+            {
+                WriteLog("本实例是更新后重启的: " + updatedFrom + " -> " + Constants.Version);
+                _pendingUpdateNotification =
+                    "启动器已更新到 v" + Constants.Version + "，DSH 服务已正常运行。";
+            }
+
             _balanceTimer.Start();
+            Thread serviceMonitorThread = new Thread(
+                ServiceMonitorThreadProc);
+            serviceMonitorThread.IsBackground = true;
+            serviceMonitorThread.Name = "DeepSeekHarnessServiceMonitor";
+            serviceMonitorThread.Start();
+
+            bool prioritizeUpdates = ShouldPrioritizeUpdatesBeforeServiceStart();
+            if (prioritizeUpdates)
+            {
+                // 自动安装更新时不先拉 DSH：先检查/安装，完成后再启动服务。
+                StartUpdateThread(delegate()
+                {
+                    Thread.Sleep(4000);
+                    RunConfiguredUpdates();
+                    if (!_exiting
+                        && !_launcherUpdateRestartPending
+                        && !_serviceRunning
+                        && !_startupInProgress)
+                    {
+                        StartServiceStartupThread();
+                    }
+                });
+            }
+            else
+            {
+                StartServiceStartupThread();
+                StartUpdateThread(delegate()
+                {
+                    Thread.Sleep(4000);
+                    RunConfiguredUpdates();
+                });
+            }
+        }
+
+        private void StartServiceStartupThread()
+        {
             Thread startupThread = new Thread(StartupThreadProc);
             startupThread.IsBackground = true;
             startupThread.Name = "DeepSeekHarnessStartup";
             startupThread.Start();
+        }
 
-            // 强制的启动期自动更新:给界面几秒把托盘挂好,然后检查并直接更新
-            Thread updateThread = new Thread(delegate()
-            {
-                Thread.Sleep(4000);
-                RunConfiguredUpdates();
-            });
+        private void StartUpdateThread(ThreadStart action)
+        {
+            Thread updateThread = new Thread(action);
             updateThread.IsBackground = true;
             updateThread.Name = "DeepSeekHarnessUpdate";
             updateThread.Start();
+        }
 
-            // 刚更新完重启回来的,弹一条完成通知(只弹一次,不重复)
-            string updatedFrom = Program.ConsumeUpdatedVersion();
-            if (!string.IsNullOrEmpty(updatedFrom)
-                && _settings.UpdateReminder)
+        private bool ShouldPrioritizeUpdatesBeforeServiceStart()
+        {
+            if (!IsAutomaticUpdateCheckDue())
             {
-                WriteLog("本实例是更新后重启的: " + updatedFrom + " -> " + Constants.Version);
-                Thread noticeThread = new Thread(delegate()
-                {
-                    Thread.Sleep(2500);
-                    InvokeOnUi(delegate()
-                    {
-                        ShowNotification(
-                            "DeepSeek Harness 更新完成:v" + updatedFrom + " → v" + Constants.Version,
-                            false);
-                    });
-                });
-                noticeThread.IsBackground = true;
-                noticeThread.Name = "DeepSeekHarnessUpdateNotice";
-                noticeThread.Start();
+                return false;
             }
+
+            return String.Equals(
+                    _settings.LauncherUpdateMode,
+                    "Install",
+                    StringComparison.OrdinalIgnoreCase)
+                || String.Equals(
+                    _settings.DshUpdateMode,
+                    "Install",
+                    StringComparison.OrdinalIgnoreCase);
         }
 
         private void RunConfiguredUpdates()
@@ -1530,7 +1571,10 @@ namespace DeepSeekHarnessLauncher
                     -1,
                     true,
                     String.Empty);
-                UpdateWindow("正在更新到 v" + manifest.Version, "准备下载…", 0);
+                UpdateWindow(
+                    "正在更新启动器到 v" + manifest.Version,
+                    "准备下载…",
+                    0);
 
                 string staging;
                 string stageError;
@@ -1565,8 +1609,8 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 UpdateWindow(
-                    "正在应用更新",
-                    "替换文件后启动器会自动重启,DSH 服务不受影响",
+                    null,
+                    "安装中 / 请不要关闭计算机",
                     100);
 
                 // 让进度窗至少停留两秒。本地源或缓存命中时下载极快,
@@ -1575,6 +1619,7 @@ namespace DeepSeekHarnessLauncher
 
                 // 交棒给替换脚本,然后退出自己
                 UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
+                _launcherUpdateRestartPending = true;
                 InvokeOnUi(ExitApplication);
             }
             catch (Exception exception)
@@ -1637,6 +1682,13 @@ namespace DeepSeekHarnessLauncher
             {
                 return "下载中…";
             }
+        }
+
+        private static string FormatPublishedAt(DateTimeOffset? value)
+        {
+            return value.HasValue
+                ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")
+                : "发布时间未知";
         }
 
         private static string FormatSpeed(double bytesPerSecond)
@@ -1960,13 +2012,14 @@ namespace DeepSeekHarnessLauncher
             if (_updateWindow != null)
             {
                 UpdateWindow(
-                    "正在应用更新",
-                    "替换文件后启动器会自动重启,DSH 服务不受影响",
+                    null,
+                    "安装中 / 请不要关闭计算机",
                     100);
             }
 
             Thread.Sleep(800);
             UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
+            _launcherUpdateRestartPending = true;
             InvokeOnUi(ExitApplication);
         }
 
@@ -2065,10 +2118,11 @@ namespace DeepSeekHarnessLauncher
                     true,
                     String.Empty);
                 string error;
-                string latest = DshUpdateService.FetchLatestVersion(
+                DshUpdatePackage package = DshUpdateService.FetchLatestPackage(
                     _settings,
                     out error);
-                if (String.IsNullOrWhiteSpace(latest))
+                if (package == null
+                    || String.IsNullOrWhiteSpace(package.Version))
                 {
                     UpdateDshUi(
                         UpdateUiActivity.Failed,
@@ -2086,9 +2140,23 @@ namespace DeepSeekHarnessLauncher
                     return;
                 }
 
+                string latest = package.Version;
                 string installed = DshUpdateService.GetInstalledVersion(
                     _settings.DshRoot);
-                if (!UpdateSupport.IsNewer(latest, installed))
+                DateTimeOffset? installedPublishedAt =
+                    DshUpdateService.GetPublishedAt(package, installed);
+                WriteLog(
+                    "DSH 更新检查: 远端 "
+                    + latest
+                    + " / "
+                    + FormatPublishedAt(package.PublishedAt)
+                    + ", 本机 "
+                    + (String.IsNullOrWhiteSpace(installed)
+                        ? "(未安装)"
+                        : installed)
+                    + " / "
+                    + FormatPublishedAt(installedPublishedAt));
+                if (!DshUpdateService.IsNewer(package, installed))
                 {
                     UpdateDshUi(
                         UpdateUiActivity.UpToDate,
@@ -2148,32 +2216,85 @@ namespace DeepSeekHarnessLauncher
                 UpdateDshUi(
                     UpdateUiActivity.Installing,
                     latest,
-                    "安装中",
-                    0,
+                    "准备下载",
+                    -1,
                     true,
                     String.Empty);
                 ShowUpdateWindow();
                 UpdateWindow(
-                    "正在更新 DSH",
-                    "下载并安装 v" + latest,
+                    "正在更新 DSH v" + latest,
+                    "准备下载…",
                     -1);
-                if (_settings.UpdateReminder)
+
+                string packagePath;
+                string downloadError;
+                bool downloaded = DshUpdateService.DownloadPackage(
+                    package,
+                    delegate(long received, long total)
+                    {
+                        bool indeterminate = total <= 0;
+                        double percent = indeterminate
+                            ? -1
+                            : received * 100.0 / total;
+                        string detail = indeterminate
+                            ? "下载中"
+                            : "下载中 · "
+                                + FormatBytes(received)
+                                + "/"
+                                + FormatBytes(total);
+                        UpdateDshUi(
+                            UpdateUiActivity.Installing,
+                            latest,
+                            "下载中",
+                            indeterminate ? -1 : percent,
+                            indeterminate,
+                            indeterminate
+                                ? String.Empty
+                                : FormatBytes(received)
+                                    + "/"
+                                    + FormatBytes(total));
+                        UpdateWindow(null, detail, percent);
+                    },
+                    out packagePath,
+                    out downloadError);
+                if (!downloaded)
                 {
-                    ShowNotification(
-                        "正在更新 DSH 到 v" + latest + "，服务将短暂中断。",
-                        false);
+                    UpdateDshUi(
+                        UpdateUiActivity.Failed,
+                        latest,
+                        "下载失败",
+                        0,
+                        false,
+                        downloadError);
+                    UpdateWindow("更新失败", downloadError, 0);
+                    WriteLog("DSH 更新包下载失败: " + downloadError);
+                    if (_settings.UpdateReminder)
+                    {
+                        ShowNotification(
+                            "DSH 更新失败: " + downloadError,
+                            true);
+                    }
+
+                    return;
                 }
 
-                StopService();
+                UpdateDshUi(
+                    UpdateUiActivity.Installing,
+                    latest,
+                    "部署中",
+                    -1,
+                    true,
+                    String.Empty);
                 UpdateWindow(
-                    "正在安装 DSH",
-                    "请不要关闭软件",
+                    "正在更新 DSH v" + latest,
+                    "安装中 / 请不要关闭计算机",
                     -1);
+                StopService();
                 string installError;
-                bool installedOk = DshUpdateService.InstallVersion(
+                bool installedOk = DshUpdateService.InstallPackage(
                     _settings.DshRoot,
                     _settings.NodePath,
-                    latest,
+                    packagePath,
                     out installError);
                 if (!installedOk)
                 {
@@ -2214,12 +2335,8 @@ namespace DeepSeekHarnessLauncher
                         false,
                         String.Empty);
                     WriteLog("DSH 更新完成: " + latest);
-                    if (_settings.UpdateReminder)
-                    {
-                        ShowNotification(
-                            "DSH 已更新到 v" + latest + "，正在重启服务。",
-                            false);
-                    }
+                    _pendingUpdateNotification =
+                        "DSH 已更新到 v" + latest + "，服务已恢复正常。";
                 }
 
                 UpdateWindow(
@@ -2383,10 +2500,12 @@ namespace DeepSeekHarnessLauncher
                 try
                 {
                     string error;
-                    string latest = DshUpdateService.FetchLatestVersion(
+                    DshUpdatePackage package =
+                        DshUpdateService.FetchLatestPackage(
                         _settings,
                         out error);
-                    if (String.IsNullOrWhiteSpace(latest))
+                    if (package == null
+                        || String.IsNullOrWhiteSpace(package.Version))
                     {
                         UpdateDshUi(
                             UpdateUiActivity.Failed,
@@ -2398,16 +2517,18 @@ namespace DeepSeekHarnessLauncher
                         return;
                     }
 
+                    string latest = package.Version;
                     string installed = DshUpdateService.GetInstalledVersion(
                         _settings.DshRoot);
+                    bool newer = DshUpdateService.IsNewer(
+                        package,
+                        installed);
                     UpdateDshUi(
-                        UpdateSupport.IsNewer(latest, installed)
+                        newer
                             ? UpdateUiActivity.Available
                             : UpdateUiActivity.UpToDate,
-                        UpdateSupport.IsNewer(latest, installed)
-                            ? latest
-                            : installed,
-                        UpdateSupport.IsNewer(latest, installed)
+                        newer ? latest : installed,
+                        newer
                             ? "发现新版本"
                             : "已是新版本",
                         0,
@@ -2542,22 +2663,32 @@ namespace DeepSeekHarnessLauncher
 
         private void RestartItemClick()
         {
-            WinFormsDialogResult result = WinFormsMessageBox.Show(
-                "确定要重启 DeepSeek Harness 服务吗？当前网页连接会暂时中断。",
-                Constants.Title,
-                WinFormsMessageBoxButtons.OKCancel,
-                WinFormsMessageBoxIcon.Question,
-                System.Windows.Forms.MessageBoxDefaultButton.Button2);
-            if (result != WinFormsDialogResult.OK)
+            bool wasRunning = _serviceRunning;
+            if (wasRunning)
             {
-                return;
+                WinFormsDialogResult result = WinFormsMessageBox.Show(
+                    "确定要重启 DeepSeek Harness 服务吗？当前网页连接会暂时中断。",
+                    Constants.Title,
+                    WinFormsMessageBoxButtons.OKCancel,
+                    WinFormsMessageBoxIcon.Question,
+                    System.Windows.Forms.MessageBoxDefaultButton.Button2);
+                if (result != WinFormsDialogResult.OK)
+                {
+                    return;
+                }
             }
 
             _trayMenu.SetRunning(false);
-            _trayIcon.UpdateTip(Constants.Title + " 正在重启...");
+            _trayIcon.UpdateTip(
+                Constants.Title
+                + (wasRunning ? " 正在重启..." : " 正在启动..."));
             if (_settings.ServiceStartReminder)
             {
-                ShowNotification("正在重启 DeepSeek Harness 服务...", false);
+                ShowNotification(
+                    wasRunning
+                        ? "正在重启 DeepSeek Harness 服务..."
+                        : "正在启动 DeepSeek Harness 服务...",
+                    false);
             }
 
             Thread restartThread = new Thread(RestartThreadProc);
@@ -3123,7 +3254,14 @@ namespace DeepSeekHarnessLauncher
             InvokeOnUi(delegate()
             {
                 SetTrayState(true, Constants.Title + " 正在运行");
-                if (_settings.ServiceStartReminder)
+                string pendingUpdate = _pendingUpdateNotification;
+                _pendingUpdateNotification = String.Empty;
+                if (!String.IsNullOrWhiteSpace(pendingUpdate)
+                    && _settings.UpdateReminder)
+                {
+                    ShowNotification(pendingUpdate, false);
+                }
+                else if (_settings.ServiceStartReminder)
                 {
                     ShowNotification(
                         openPage ? "DeepSeek Harness 服务启动已成功。" : "DeepSeek Harness 服务重启成功。",
@@ -3164,6 +3302,7 @@ namespace DeepSeekHarnessLauncher
         private void FailStartup(string message)
         {
             _startupInProgress = false;
+            _pendingUpdateNotification = String.Empty;
             WriteLog("Startup failed: " + message);
             InvokeOnUi(delegate()
             {
@@ -3191,6 +3330,10 @@ namespace DeepSeekHarnessLauncher
             _trayMenu.SetRunning(running);
             _trayIcon.UpdateTip(tooltip);
             UpdateTrayToolTip();
+            if (_settingsHost != null)
+            {
+                _settingsHost.RaiseServiceStateChanged();
+            }
         }
 
         private void UpdateTrayToolTip()
@@ -3340,6 +3483,7 @@ namespace DeepSeekHarnessLauncher
         private void FailRestart(string message)
         {
             _startupInProgress = false;
+            _pendingUpdateNotification = String.Empty;
             WriteLog("Restart failed: " + message);
             InvokeOnUi(delegate()
             {
@@ -3528,6 +3672,77 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
+        private void ServiceMonitorThreadProc()
+        {
+            int stoppedSamples = 0;
+            int runningSamples = 0;
+            while (!_exiting)
+            {
+                Thread.Sleep(1500);
+                if (_exiting
+                    || _startupInProgress
+                    || _updateInProgress
+                    || _dshUpdateInProgress)
+                {
+                    stoppedSamples = 0;
+                    runningSamples = 0;
+                    continue;
+                }
+
+                bool running = IsServiceReady();
+                if (running == _serviceRunning)
+                {
+                    stoppedSamples = 0;
+                    runningSamples = 0;
+                    continue;
+                }
+
+                if (running)
+                {
+                    runningSamples++;
+                    stoppedSamples = 0;
+                }
+                else
+                {
+                    stoppedSamples++;
+                    runningSamples = 0;
+                }
+
+                if ((running ? runningSamples : stoppedSamples) < 2)
+                {
+                    continue;
+                }
+
+                stoppedSamples = 0;
+                runningSamples = 0;
+                WriteLog(
+                    "Service monitor observed state: "
+                    + (running ? "running" : "stopped"));
+                InvokeOnUi(delegate()
+                {
+                    ApplyObservedServiceState(running);
+                });
+            }
+        }
+
+        private void ApplyObservedServiceState(bool running)
+        {
+            if (_exiting || _serviceRunning == running)
+            {
+                return;
+            }
+
+            if (!running)
+            {
+                _service = null;
+                _serviceUrl = null;
+            }
+
+            SetTrayState(
+                running,
+                Constants.Title + (running ? " 正在运行" : " 已停止"));
+        }
+
         private void InvokeOnUi(Action action)
         {
             try
@@ -3591,14 +3806,11 @@ namespace DeepSeekHarnessLauncher
             {
             }
 
-            try
-            {
-                WinUIApplication.Current.Exit();
-            }
-            catch
-            {
-                Environment.Exit(0);
-            }
+            // WinUI 3 的 Application.Exit 会继续走原生窗口销毁链，
+            // 在部分机器上仍会触发不可捕获的 0xc0000005。
+            // 自己的资源已经清理完，直接结束进程，避免进入这条原生退出路径。
+            LauncherAppearance.BeginShutdown();
+            Environment.Exit(0);
         }
 
     }
@@ -4079,6 +4291,13 @@ namespace DeepSeekHarnessLauncher
             _openItem.IsEnabled = running;
             _restartItem.IsEnabled = true;
             _forceStopItem.IsEnabled = running;
+            TextBlock restartLabel = _restartItem.Tag as TextBlock;
+            if (restartLabel != null)
+            {
+                restartLabel.Text = running
+                    ? "重启 DSH 服务"
+                    : "启动 DSH 服务";
+            }
         }
 
         public void Close()
@@ -5452,7 +5671,7 @@ namespace DeepSeekHarnessLauncher
                     menu,
                     MfString,
                     new UIntPtr(RestartCommand),
-                    "重启 DSH 服务");
+                    _running ? "重启 DSH 服务" : "启动 DSH 服务");
                 NativeMethods.AppendMenu(menu, MfSeparator, UIntPtr.Zero, null);
                 NativeMethods.AppendMenu(
                     menu,

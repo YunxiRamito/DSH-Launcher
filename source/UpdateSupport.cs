@@ -504,35 +504,206 @@ namespace DeepSeekHarnessLauncher
         /// <summary>远端比本机新就返回 true。</summary>
         public static bool IsNewer(string remoteVersion, string localVersion)
         {
-            Version remote = ParseVersion(remoteVersion);
-            Version local = ParseVersion(localVersion);
-            if (remote == null || local == null)
+            return CompareVersions(remoteVersion, localVersion) > 0;
+        }
+
+        /// <summary>
+        /// 比较 SemVer。核心版本先比,预发布版本按 SemVer 2.0 规则比较,
+        /// build metadata(加号后的部分)不参与比较。
+        /// </summary>
+        internal static int CompareVersions(string leftText, string rightText)
+        {
+            SemanticVersion left;
+            SemanticVersion right;
+            if (!TryParseSemanticVersion(leftText, out left)
+                || !TryParseSemanticVersion(rightText, out right))
+            {
+                return 0;
+            }
+
+            int core = left.Major.CompareTo(right.Major);
+            if (core == 0)
+            {
+                core = left.Minor.CompareTo(right.Minor);
+            }
+
+            if (core == 0)
+            {
+                core = left.Patch.CompareTo(right.Patch);
+            }
+
+            if (core != 0)
+            {
+                return core;
+            }
+
+            if (left.PreRelease == null && right.PreRelease == null)
+            {
+                return 0;
+            }
+
+            if (left.PreRelease == null)
+            {
+                return 1;
+            }
+
+            if (right.PreRelease == null)
+            {
+                return -1;
+            }
+
+            string[] leftParts = left.PreRelease.Split('.');
+            string[] rightParts = right.PreRelease.Split('.');
+            int count = Math.Min(leftParts.Length, rightParts.Length);
+            for (int index = 0; index < count; index++)
+            {
+                int comparison = CompareIdentifier(
+                    leftParts[index],
+                    rightParts[index]);
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+            }
+
+            return leftParts.Length.CompareTo(rightParts.Length);
+        }
+
+        private static bool TryParseSemanticVersion(
+            string text,
+            out SemanticVersion version)
+        {
+            version = null;
+            if (String.IsNullOrWhiteSpace(text))
             {
                 return false;
             }
 
-            return remote > local;
+            string value = text.Trim();
+            if (value.Length > 0
+                && (value[0] == 'v' || value[0] == 'V'))
+            {
+                value = value.Substring(1);
+            }
+
+            int buildMetadata = value.IndexOf('+');
+            if (buildMetadata >= 0)
+            {
+                value = value.Substring(0, buildMetadata);
+            }
+
+            string preRelease = null;
+            int preReleaseIndex = value.IndexOf('-');
+            if (preReleaseIndex >= 0)
+            {
+                preRelease = value.Substring(preReleaseIndex + 1);
+                value = value.Substring(0, preReleaseIndex);
+                if (preRelease.Length == 0)
+                {
+                    return false;
+                }
+            }
+
+            string[] coreParts = value.Split('.');
+            if (coreParts.Length < 2 || coreParts.Length > 3)
+            {
+                return false;
+            }
+
+            int major;
+            int minor;
+            int patch = 0;
+            if (!Int32.TryParse(
+                    coreParts[0],
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out major)
+                || !Int32.TryParse(
+                    coreParts[1],
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out minor)
+                || (coreParts.Length == 3
+                    && !Int32.TryParse(
+                        coreParts[2],
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out patch)))
+            {
+                return false;
+            }
+
+            if (major < 0 || minor < 0 || patch < 0)
+            {
+                return false;
+            }
+
+            version = new SemanticVersion
+            {
+                Major = major,
+                Minor = minor,
+                Patch = patch,
+                PreRelease = preRelease
+            };
+            return true;
         }
 
-        internal static Version ParseVersion(string text)
+        private static int CompareIdentifier(string left, string right)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            bool leftNumeric = IsNumericIdentifier(left);
+            bool rightNumeric = IsNumericIdentifier(right);
+            if (leftNumeric && rightNumeric)
             {
-                return null;
+                string leftTrimmed = left.TrimStart('0');
+                string rightTrimmed = right.TrimStart('0');
+                if (leftTrimmed.Length == 0)
+                {
+                    leftTrimmed = "0";
+                }
+
+                if (rightTrimmed.Length == 0)
+                {
+                    rightTrimmed = "0";
+                }
+
+                int length = leftTrimmed.Length.CompareTo(rightTrimmed.Length);
+                return length != 0
+                    ? length
+                    : String.CompareOrdinal(leftTrimmed, rightTrimmed);
             }
 
-            Match match = Regex.Match(text, @"(\d+)\.(\d+)(?:\.(\d+))?");
-            if (!match.Success)
+            if (leftNumeric != rightNumeric)
             {
-                return null;
+                return leftNumeric ? -1 : 1;
             }
 
-            int major = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            int minor = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            int build = match.Groups[3].Success
-                ? int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture)
-                : 0;
-            return new Version(major, minor, build);
+            return String.CompareOrdinal(left, right);
+        }
+
+        private static bool IsNumericIdentifier(string value)
+        {
+            if (String.IsNullOrEmpty(value))
+            {
+                return false;
+            }
+
+            for (int index = 0; index < value.Length; index++)
+            {
+                if (value[index] < '0' || value[index] > '9')
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private sealed class SemanticVersion
+        {
+            public int Major { get; set; }
+            public int Minor { get; set; }
+            public int Patch { get; set; }
+            public string PreRelease { get; set; }
         }
 
         // ---------------------------------------------------------------- 下载 + 落地

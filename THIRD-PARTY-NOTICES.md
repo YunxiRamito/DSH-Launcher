@@ -2,8 +2,10 @@
 
 ## Microsoft Fluent System Icons
 
-The SVG navigation icons under `source/assets/SettingsNavIcons` are based on
-Microsoft Fluent System Icons:
+The SVG navigation icons under `source/assets/SettingsNavIcons`,
+`source/assets/SettingsNavIconsWin10`, and
+`source/assets/SettingsNavIconsWin10Dark` are based on Microsoft Fluent System
+Icons:
 
 - Repository: https://github.com/microsoft/fluentui-system-icons
 - License: MIT
