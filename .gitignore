@@ -5,6 +5,7 @@ source/dist/
 source/dist-*/
 source/publish/
 dist/
+DeepSeekHarness-*/
 
 # 发版打包出来的 zip(作为 release 资产上传,不进仓库)
 *.zip

@@ -48,14 +48,6 @@ namespace DeepSeekHarnessLauncher
                 presenter.IsAlwaysOnTop = true;
             }
 
-            try
-            {
-                _window.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
-            }
-            catch
-            {
-            }
-
             StackPanel panel = new StackPanel
             {
                 Spacing = 10,
@@ -96,8 +88,13 @@ namespace DeepSeekHarnessLauncher
             };
 
             _window.Content = surface;
+            LauncherAppearance.Register(
+                _window,
+                surface,
+                delegate(Brush brush) { surface.Background = brush; });
             _window.Closed += delegate
             {
+                LauncherAppearance.Unregister(_window);
                 _closed = true;
             };
         }

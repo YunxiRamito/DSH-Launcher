@@ -19,8 +19,8 @@ namespace DeepSeekHarnessLauncher
     /// </summary>
     internal static class DshPortResolver
     {
-        /// <summary>没有任何线索时优先试的端口(DshInstaller 的默认值)。</summary>
-        public const int DefaultPort = 8787;
+        /// <summary>“默认端口”选项使用的端口。</summary>
+        public const int DefaultPort = 3080;
 
         private static readonly int[] CommonPorts = new int[] { 8787, 8788, 8080, 3000, 5173, 9000 };
 
@@ -32,9 +32,15 @@ namespace DeepSeekHarnessLauncher
         /// </summary>
         /// <param name="dshRoot">DSH 根目录,可为空(空的话自己找)。</param>
         /// <param name="found">true 表示确认已有 DSH 在跑。</param>
-        public static int Resolve(string dshRoot, out bool found)
+        public static int Resolve(
+            string dshRoot,
+            LauncherSettings settings,
+            ref int randomPort,
+            out bool found,
+            out bool settingDeferred)
         {
             found = false;
+            settingDeferred = false;
 
             // 1) 运行中的 dsh 进程,命令行里的 --port
             int fromProcess = ReadPortFromRunningDsh();
@@ -42,6 +48,9 @@ namespace DeepSeekHarnessLauncher
             {
                 found = true;
                 LauncherLog("来源=进程命令行 -> " + fromProcess);
+                settingDeferred = IsConfiguredPortDifferent(
+                    settings,
+                    fromProcess);
                 return fromProcess;
             }
 
@@ -53,6 +62,9 @@ namespace DeepSeekHarnessLauncher
                 {
                     found = true;
                     LauncherLog("来源=dsh 的 last-url.txt -> " + fromStateFile + "(服务在跑)");
+                    settingDeferred = IsConfiguredPortDifferent(
+                        settings,
+                        fromStateFile);
                     return fromStateFile;
                 }
 
@@ -67,11 +79,26 @@ namespace DeepSeekHarnessLauncher
                 {
                     found = true;
                     LauncherLog("来源=端口探测 -> " + candidates[index]);
+                    settingDeferred = IsConfiguredPortDifferent(
+                        settings,
+                        candidates[index]);
                     return candidates[index];
                 }
             }
 
-            // 4) 我们自己的配置
+            // 4) 没有现成服务时,按设置选择下一次服务要用的端口。
+            if (settings != null)
+            {
+                int selected = ResolveConfiguredPort(settings, ref randomPort);
+                LauncherLog(
+                    "来源=LauncherSettings -> "
+                    + selected.ToString()
+                    + " mode="
+                    + settings.PortMode);
+                return selected;
+            }
+
+            // 5) 兼容旧配置。
             int fromConfig = ReadConfiguredPort();
             if (fromConfig > 0)
             {
@@ -79,10 +106,59 @@ namespace DeepSeekHarnessLauncher
                 return fromConfig;
             }
 
-            // 5) 都没有:挑一个空闲端口
+            // 6) 都没有:挑一个空闲端口
             int free = FindFreePort();
             LauncherLog("没找到现成的 DSH,自己挑空闲端口 " + free);
             return free;
+        }
+
+        private static int ResolveConfiguredPort(
+            LauncherSettings settings,
+            ref int randomPort)
+        {
+            if (String.Equals(
+                settings.PortMode,
+                "Default",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return DefaultPort;
+            }
+
+            if (String.Equals(
+                settings.PortMode,
+                "Random",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                if (randomPort <= 0)
+                {
+                    randomPort = FindFreePort();
+                }
+
+                return randomPort;
+            }
+
+            return settings.FixedPort >= 1024 && settings.FixedPort <= 65535
+                ? settings.FixedPort
+                : 8787;
+        }
+
+        private static bool IsConfiguredPortDifferent(
+            LauncherSettings settings,
+            int actualPort)
+        {
+            if (settings == null
+                || String.Equals(
+                    settings.PortMode,
+                    "Random",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            int ignoredRandomPort = 0;
+            return ResolveConfiguredPort(
+                settings,
+                ref ignoredRandomPort) != actualPort;
         }
 
         /// <summary>读 DSH 自己写的 logs\last-url.txt,从里面抠端口。</summary>

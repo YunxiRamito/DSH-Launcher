@@ -1,4 +1,7 @@
 using Microsoft.UI.Xaml;
+using System;
+using System.IO;
+using System.Text;
 
 namespace DeepSeekHarnessLauncher
 {
@@ -7,11 +10,36 @@ namespace DeepSeekHarnessLauncher
         public App()
         {
             InitializeComponent();
+            UnhandledException += App_UnhandledException;
         }
 
         protected override void OnLaunched(LaunchActivatedEventArgs arguments)
         {
             Program.OnApplicationLaunched();
+        }
+
+        private static void App_UnhandledException(
+            object sender,
+            Microsoft.UI.Xaml.UnhandledExceptionEventArgs args)
+        {
+            try
+            {
+                string directory = Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness");
+                Directory.CreateDirectory(directory);
+                File.AppendAllText(
+                    Path.Combine(directory, "launcher-boot.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                    + "  [unhandled] "
+                    + args.Exception
+                    + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch
+            {
+            }
         }
     }
 }

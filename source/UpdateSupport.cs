@@ -37,7 +37,7 @@ namespace DeepSeekHarnessLauncher
         /// 版本清单地址。默认用启动器仓库根目录的 manifest.json;
         /// 同目录的 launcher.json 可以通过 updateManifestUrls 覆盖(镜像 / 自建源 / 内网用)。
         /// </summary>
-        private static string[] ResolveManifestUrls()
+        private static string[] ResolveManifestUrls(bool official)
         {
             List<string> configured = ReadConfiguredManifestUrls();
             if (configured.Count > 0)
@@ -60,6 +60,13 @@ namespace DeepSeekHarnessLauncher
             string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile + "?t=" + nonce;
 
             List<string> urls = new List<string>();
+
+            if (official)
+            {
+                urls.Add(raw);
+                urls.Add("https://api.github.com/repos/" + Repository + "/releases/latest");
+                return urls.ToArray();
+            }
 
             // 这个顺序是实测出来的(2026-09-19 本机):
             //   api.github.com       600ms  通
@@ -148,9 +155,21 @@ namespace DeepSeekHarnessLauncher
         /// <summary>拉版本清单。国内优先 jsDelivr,失败退 raw.githubusercontent。</summary>
         public static UpdateManifest FetchManifest(out string error)
         {
+            return FetchManifest(null, out error);
+        }
+
+        public static UpdateManifest FetchManifest(
+            LauncherSettings settings,
+            out string error)
+        {
             error = null;
 
-            string[] urls = ResolveManifestUrls();
+            bool official = settings != null
+                && String.Equals(
+                    settings.UpdateSource,
+                    "Official",
+                    StringComparison.OrdinalIgnoreCase);
+            string[] urls = ResolveManifestUrls(official);
 
             string json = null;
             List<string> failures = new List<string>();
@@ -184,6 +203,16 @@ namespace DeepSeekHarnessLauncher
                 // 走到 GitHub API 的 releases/latest 了:那个返回的是 GitHub 自己的结构,
                 // 不是我们的清单格式,得转换一下
                 manifest = ParseGitHubRelease(json, out error);
+            }
+
+            if (manifest != null && official)
+            {
+                manifest.Urls.RemoveAll(delegate(string url)
+                {
+                    return url.StartsWith(
+                        "https://registry.npmmirror.com/",
+                        StringComparison.OrdinalIgnoreCase);
+                });
             }
 
             return manifest;

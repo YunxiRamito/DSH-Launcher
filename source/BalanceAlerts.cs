@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DeepSeekHarnessLauncher
 {
@@ -22,32 +22,35 @@ namespace DeepSeekHarnessLauncher
         public string Currency = String.Empty;
         public decimal LastBalance;
         public decimal TodaySpend;
-        public bool DailySpendAlerted;
-        public bool Low10Armed = true;
-        public bool Low5Armed = true;
-        public bool Low1Armed = true;
+        public bool HasBaseline;
+        public List<string> SpendAlerted = new List<string>();
+        public Dictionary<string, bool> BalanceArmed =
+            new Dictionary<string, bool>();
     }
 
     internal sealed class DeepSeekBalanceAlertTracker
     {
-        private const decimal DailySpendThreshold = 15.0m;
-        private const decimal Low10Threshold = 10.0m;
-        private const decimal Low5Threshold = 5.0m;
-        private const decimal Low1Threshold = 1.0m;
+        private const decimal RechargeMinimum = 0.10m;
 
         private readonly string _statePath;
         private readonly string _pluginUsagePath;
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
-        {
-            IncludeFields = true,
-            PropertyNameCaseInsensitive = true
-        };
+        private readonly LauncherSettings _settings;
+        private static readonly JsonSerializerOptions JsonOptions =
+            new JsonSerializerOptions
+            {
+                IncludeFields = true,
+                PropertyNameCaseInsensitive = true
+            };
         private BalanceAlertState _state;
 
-        public DeepSeekBalanceAlertTracker(string statePath, string pluginUsagePath)
+        public DeepSeekBalanceAlertTracker(
+            string statePath,
+            string pluginUsagePath,
+            LauncherSettings settings)
         {
             _statePath = statePath;
             _pluginUsagePath = pluginUsagePath;
+            _settings = settings;
             _state = LoadState();
         }
 
@@ -68,24 +71,31 @@ namespace DeepSeekHarnessLauncher
             }
 
             update.IsCny = true;
-            string today = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-            if (!String.Equals(_state.Date, today, StringComparison.Ordinal)
-                || !String.Equals(_state.Currency, currency, StringComparison.OrdinalIgnoreCase))
+            string today = DateTime.Now.ToString(
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture);
+            bool newDay = !String.Equals(
+                    _state.Date,
+                    today,
+                    StringComparison.Ordinal)
+                || !String.Equals(
+                    _state.Currency,
+                    currency,
+                    StringComparison.OrdinalIgnoreCase);
+            if (newDay)
             {
                 _state.Date = today;
                 _state.Currency = currency;
-                _state.LastBalance = result.Amount;
                 _state.TodaySpend = 0.0m;
-                _state.DailySpendAlerted = false;
-                _state.Low10Armed = true;
-                _state.Low5Armed = true;
-                _state.Low1Armed = true;
+                _state.SpendAlerted.Clear();
+                _state.HasBaseline = false;
             }
 
-            if (_state.LastBalance > 0.0m && result.Amount < _state.LastBalance)
+            decimal previousBalance = _state.LastBalance;
+            bool hadBaseline = _state.HasBaseline;
+            if (hadBaseline && result.Amount < previousBalance)
             {
-                _state.TodaySpend += _state.LastBalance - result.Amount;
+                _state.TodaySpend += previousBalance - result.Amount;
             }
 
             decimal pluginUsage = ReadPluginUsage(today, currency);
@@ -95,35 +105,41 @@ namespace DeepSeekHarnessLauncher
             }
 
             _state.LastBalance = result.Amount;
-            _state.Date = today;
-            _state.Currency = currency;
+            _state.HasBaseline = true;
             update.TodaySpend = _state.TodaySpend;
 
-            List<string> alerts = new List<string>();
-            if (!_state.DailySpendAlerted && _state.TodaySpend >= DailySpendThreshold)
+            List<string> notifications = new List<string>();
+
+            if (_settings != null
+                && _settings.RechargeReminder
+                && hadBaseline
+                && result.Amount - previousBalance >= RechargeMinimum)
             {
-                _state.DailySpendAlerted = true;
-                update.Critical = true;
-                alerts.Add(
-                    "今日已花费 "
-                    + FormatMoney(_state.TodaySpend)
-                    + "，已超过 "
-                    + FormatMoney(DailySpendThreshold));
+                notifications.Add(
+                    "充值成功：余额 "
+                    + FormatMoney(result.Amount)
+                    + "，本次增加 "
+                    + FormatMoney(result.Amount - previousBalance));
             }
 
-            string lowBalanceAlert = CheckLowBalance(result.Amount);
-            if (!String.IsNullOrEmpty(lowBalanceAlert))
+            string spendAlert = BuildSpendAlert();
+            if (!String.IsNullOrEmpty(spendAlert))
             {
-                alerts.Add(lowBalanceAlert);
-                if (result.Amount <= Low1Threshold)
-                {
-                    update.Critical = true;
-                }
+                notifications.Add(spendAlert);
             }
 
-            if (alerts.Count > 0)
+            string balanceAlert = BuildBalanceAlert(result.Amount, out bool critical);
+            if (!String.IsNullOrEmpty(balanceAlert))
             {
-                update.Notification = "余额告警：" + String.Join("；", alerts.ToArray());
+                notifications.Add(balanceAlert);
+                update.Critical = critical;
+            }
+
+            if (notifications.Count > 0)
+            {
+                update.Notification = String.Join(
+                    Environment.NewLine,
+                    notifications.ToArray());
             }
 
             SaveState();
@@ -145,51 +161,167 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
-        private string CheckLowBalance(decimal amount)
+        private string BuildSpendAlert()
         {
-            if (amount > Low10Threshold)
+            List<decimal> crossed = new List<decimal>();
+            AddSpendThreshold(
+                crossed,
+                "5",
+                _settings != null && _settings.SpendAlert5,
+                5.0m);
+            AddSpendThreshold(
+                crossed,
+                "10",
+                _settings != null && _settings.SpendAlert10,
+                10.0m);
+            AddSpendThreshold(
+                crossed,
+                "20",
+                _settings != null && _settings.SpendAlert20,
+                20.0m);
+            AddSpendThreshold(
+                crossed,
+                "50",
+                _settings != null && _settings.SpendAlert50,
+                50.0m);
+            AddSpendThreshold(
+                crossed,
+                "custom",
+                _settings != null && _settings.SpendAlertCustom,
+                _settings == null ? 15.0m : _settings.SpendCustomAmount);
+
+            if (crossed.Count == 0)
             {
-                _state.Low10Armed = true;
-                _state.Low5Armed = true;
-                _state.Low1Armed = true;
                 return null;
             }
 
-            if (amount > Low5Threshold)
+            crossed.Sort();
+            List<string> labels = new List<string>();
+            for (int index = 0; index < crossed.Count; index++)
             {
-                _state.Low5Armed = true;
-                _state.Low1Armed = true;
-                if (_state.Low10Armed)
+                labels.Add(FormatMoney(crossed[index]));
+            }
+
+            return "今日已消费 "
+                + FormatMoney(_state.TodaySpend)
+                + "，已达到提醒线："
+                + String.Join("、", labels.ToArray());
+        }
+
+        private void AddSpendThreshold(
+            List<decimal> crossed,
+            string key,
+            bool enabled,
+            decimal threshold)
+        {
+            if (!enabled || threshold <= 0.0m)
+            {
+                return;
+            }
+
+            if (_state.TodaySpend >= threshold
+                && !_state.SpendAlerted.Contains(key))
+            {
+                _state.SpendAlerted.Add(key);
+                crossed.Add(threshold);
+            }
+        }
+
+        private string BuildBalanceAlert(
+            decimal amount,
+            out bool critical)
+        {
+            List<decimal> crossed = new List<decimal>();
+            decimal minimum = decimal.MaxValue;
+            AddBalanceThreshold(
+                crossed,
+                "20",
+                _settings != null && _settings.BalanceAlert20,
+                20.0m,
+                amount,
+                ref minimum);
+            AddBalanceThreshold(
+                crossed,
+                "10",
+                _settings != null && _settings.BalanceAlert10,
+                10.0m,
+                amount,
+                ref minimum);
+            AddBalanceThreshold(
+                crossed,
+                "5",
+                _settings != null && _settings.BalanceAlert5,
+                5.0m,
+                amount,
+                ref minimum);
+            AddBalanceThreshold(
+                crossed,
+                "1",
+                _settings != null && _settings.BalanceAlert1,
+                1.0m,
+                amount,
+                ref minimum);
+            AddBalanceThreshold(
+                crossed,
+                "custom",
+                _settings != null && _settings.BalanceAlertCustom,
+                _settings == null ? 50.0m : _settings.BalanceCustomAmount,
+                amount,
+                ref minimum);
+
+            critical = crossed.Count > 0 && minimum <= 1.0m;
+            if (crossed.Count == 0)
+            {
+                return null;
+            }
+
+            crossed.Sort();
+            List<string> labels = new List<string>();
+            for (int index = 0; index < crossed.Count; index++)
+            {
+                labels.Add(FormatMoney(crossed[index]));
+            }
+
+            return "余额仅剩 "
+                + FormatMoney(amount)
+                + "，已触及提醒线："
+                + String.Join("、", labels.ToArray());
+        }
+
+        private void AddBalanceThreshold(
+            List<decimal> crossed,
+            string key,
+            bool enabled,
+            decimal threshold,
+            decimal amount,
+            ref decimal minimum)
+        {
+            if (!enabled || threshold <= 0.0m)
+            {
+                return;
+            }
+
+            bool armed;
+            if (!_state.BalanceArmed.TryGetValue(key, out armed))
+            {
+                armed = true;
+            }
+
+            if (amount > threshold)
+            {
+                _state.BalanceArmed[key] = true;
+                return;
+            }
+
+            if (armed)
+            {
+                _state.BalanceArmed[key] = false;
+                crossed.Add(threshold);
+                if (threshold < minimum)
                 {
-                    _state.Low10Armed = false;
-                    return "余额仅剩 " + FormatMoney(amount) + "（已达到 10 元提醒线）";
+                    minimum = threshold;
                 }
-
-                return null;
             }
-
-            if (amount > Low1Threshold)
-            {
-                _state.Low1Armed = true;
-                if (_state.Low5Armed || _state.Low10Armed)
-                {
-                    _state.Low5Armed = false;
-                    _state.Low10Armed = false;
-                    return "余额仅剩 " + FormatMoney(amount) + "（已达到 5 元提醒线）";
-                }
-
-                return null;
-            }
-
-            if (_state.Low1Armed || _state.Low5Armed || _state.Low10Armed)
-            {
-                _state.Low1Armed = false;
-                _state.Low5Armed = false;
-                _state.Low10Armed = false;
-                return "余额仅剩 " + FormatMoney(amount) + "（已达到 1 元提醒线）";
-            }
-
-            return null;
         }
 
         private decimal ReadPluginUsage(string today, string currency)
@@ -211,15 +343,21 @@ namespace DeepSeekHarnessLauncher
                 Match currencyMatch = Regex.Match(
                     text,
                     @"""lastCurrency""[ \t]*:[ \t]*""(?<value>(?:\\.|[^""])*)""");
-                if (!dateMatch.Success || !amountMatch.Success || !currencyMatch.Success)
+                if (!dateMatch.Success
+                    || !amountMatch.Success
+                    || !currencyMatch.Success)
                 {
                     return 0.0m;
                 }
 
-                string ledgerDate = dateMatch.Groups["value"].Value;
-                string ledgerCurrency = currencyMatch.Groups["value"].Value;
-                if (!String.Equals(ledgerDate, today, StringComparison.Ordinal)
-                    || !String.Equals(ledgerCurrency, currency, StringComparison.OrdinalIgnoreCase))
+                if (!String.Equals(
+                        dateMatch.Groups["value"].Value,
+                        today,
+                        StringComparison.Ordinal)
+                    || !String.Equals(
+                        currencyMatch.Groups["value"].Value,
+                        currency,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     return 0.0m;
                 }
@@ -294,7 +432,9 @@ namespace DeepSeekHarnessLauncher
 
         private static string FormatMoney(decimal amount)
         {
-            return "¥" + amount.ToString("0.00", CultureInfo.InvariantCulture);
+            return "¥" + amount.ToString(
+                "0.00",
+                CultureInfo.InvariantCulture);
         }
     }
 }

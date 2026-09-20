@@ -22,13 +22,8 @@ namespace DeepSeekHarnessLauncher
             {
                 try
                 {
-                    byte[] protectedBytes = Convert.FromBase64String(
+                    return UnprotectApiKey(
                         File.ReadAllText(launcherPath, Encoding.UTF8));
-                    byte[] clearBytes = ProtectedData.Unprotect(
-                        protectedBytes,
-                        null,
-                        DataProtectionScope.CurrentUser);
-                    return Encoding.UTF8.GetString(clearBytes).Trim();
                 }
                 catch
                 {
@@ -64,15 +59,35 @@ namespace DeepSeekHarnessLauncher
                 Directory.CreateDirectory(directory);
             }
 
+            File.WriteAllText(
+                path,
+                ProtectApiKey(apiKey),
+                new UTF8Encoding(false));
+        }
+
+        internal static string ProtectApiKey(string apiKey)
+        {
             byte[] clearBytes = Encoding.UTF8.GetBytes(apiKey ?? String.Empty);
             byte[] protectedBytes = ProtectedData.Protect(
                 clearBytes,
                 null,
                 DataProtectionScope.CurrentUser);
-            File.WriteAllText(
-                path,
-                Convert.ToBase64String(protectedBytes),
-                new UTF8Encoding(false));
+            return Convert.ToBase64String(protectedBytes);
+        }
+
+        internal static string UnprotectApiKey(string protectedValue)
+        {
+            if (String.IsNullOrWhiteSpace(protectedValue))
+            {
+                return String.Empty;
+            }
+
+            byte[] protectedBytes = Convert.FromBase64String(protectedValue);
+            byte[] clearBytes = ProtectedData.Unprotect(
+                protectedBytes,
+                null,
+                DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(clearBytes).Trim();
         }
 
         private static string GetLauncherApiKeyPath(string root)
