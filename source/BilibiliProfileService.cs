@@ -45,6 +45,7 @@ namespace DeepSeekHarnessLauncher
                 })
                 using (HttpClient client = new HttpClient(handler))
                 {
+                    ProxySupport.Apply(handler);
                     client.Timeout = TimeSpan.FromSeconds(20);
                     client.DefaultRequestHeaders.UserAgent.ParseAdd(
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

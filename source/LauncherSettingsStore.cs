@@ -182,6 +182,41 @@ namespace DeepSeekHarnessLauncher
             Save(settings);
         }
 
+        /// <summary>在线插件目录用的 GitHub Token，和 API Key 一样走 DPAPI。</summary>
+        internal static string ReadGitHubToken(LauncherSettings settings)
+        {
+            if (settings == null
+                || String.IsNullOrWhiteSpace(settings.GitHubTokenProtected))
+            {
+                return String.Empty;
+            }
+
+            try
+            {
+                return CredentialStore.UnprotectApiKey(
+                    settings.GitHubTokenProtected);
+            }
+            catch
+            {
+                return String.Empty;
+            }
+        }
+
+        internal static void SetGitHubToken(
+            LauncherSettings settings,
+            string token)
+        {
+            if (settings == null)
+            {
+                return;
+            }
+
+            settings.GitHubTokenProtected = String.IsNullOrWhiteSpace(token)
+                ? String.Empty
+                : CredentialStore.ProtectApiKey(token.Trim());
+            Save(settings);
+        }
+
         private static void ApplyLegacyLauncherJson(
             LauncherSettings settings,
             string launcherDirectory)
@@ -262,7 +297,7 @@ namespace DeepSeekHarnessLauncher
 
         private static void Normalize(LauncherSettings settings)
         {
-            settings.SchemaVersion = 1;
+            settings.SchemaVersion = 2;
             settings.PortMode = NormalizeChoice(
                 settings.PortMode,
                 "Fixed",
@@ -304,6 +339,11 @@ namespace DeepSeekHarnessLauncher
                 "Accelerated",
                 "Accelerated",
                 "Official");
+            settings.PluginSource = NormalizeChoice(
+                settings.PluginSource,
+                "Market",
+                "Market",
+                "GitHub");
             settings.LauncherUpdateMode = NormalizeChoice(
                 settings.LauncherUpdateMode,
                 "Install",
@@ -316,6 +356,31 @@ namespace DeepSeekHarnessLauncher
                 "Install",
                 "Check",
                 "Off");
+            settings.PluginUpdateMode = NormalizeChoice(
+                settings.PluginUpdateMode,
+                "Check",
+                "Install",
+                "Check",
+                "Off");
+            settings.ProxyMode = NormalizeChoice(
+                settings.ProxyMode,
+                "None",
+                "None",
+                "System",
+                "Custom");
+            settings.ProxyProtocol = NormalizeChoice(
+                settings.ProxyProtocol,
+                "Http",
+                "Http",
+                "Https",
+                "Socks5");
+            settings.ProxyHost = String.IsNullOrWhiteSpace(settings.ProxyHost)
+                ? "127.0.0.1"
+                : settings.ProxyHost.Trim();
+            if (settings.ProxyPort < 1 || settings.ProxyPort > 65535)
+            {
+                settings.ProxyPort = 7890;
+            }
             settings.UpdateInterval = NormalizeChoice(
                 settings.UpdateInterval,
                 "EveryStart",

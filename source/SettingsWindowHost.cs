@@ -16,9 +16,14 @@ namespace DeepSeekHarnessLauncher
         public Action InstallLauncherUpdate { get; set; } = delegate { };
         public Action CheckDshUpdate { get; set; } = delegate { };
         public Action InstallDshUpdate { get; set; } = delegate { };
+        public Action CheckPluginUpdates { get; set; } = delegate { };
+        public Action InstallPluginUpdates { get; set; } = delegate { };
+        public Action<string> InstallPluginUpdate { get; set; } = delegate { };
         public Func<UpdateUiSnapshot> GetLauncherUpdateState { get; set; } =
             delegate { return new UpdateUiSnapshot(); };
         public Func<UpdateUiSnapshot> GetDshUpdateState { get; set; } =
+            delegate { return new UpdateUiSnapshot(); };
+        public Func<UpdateUiSnapshot> GetPluginUpdateState { get; set; } =
             delegate { return new UpdateUiSnapshot(); };
         public Action<string> ApplyApiKey { get; set; } = delegate { };
         public Action RefreshBalance { get; set; } = delegate { };

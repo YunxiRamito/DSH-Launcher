@@ -15,7 +15,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Repository = 'YunxiRamito/DSH-Launcher',
+    [string]$Repository = 'YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run',
     [string]$OutputRoot,
     [switch]$NoBuild,
     [switch]$KeepDist
@@ -50,7 +50,7 @@ function Get-ReleaseNotes([string]$targetVersion) {
     $changeLog = Join-Path $PSScriptRoot 'CHANGELOG.md'
     if (-not (Test-Path $changeLog)) {
         Warn "没有 CHANGELOG.md,这版将没有更新日志"
-        return "DeepSeek Harness 启动器 v$targetVersion"
+        return "大肥鱼Go启动器 v$targetVersion"
     }
 
     $lines = Get-Content $changeLog -Encoding UTF8
@@ -72,7 +72,7 @@ function Get-ReleaseNotes([string]$targetVersion) {
     $text = ($buffer -join "`n").Trim()
     if ([string]::IsNullOrWhiteSpace($text)) {
         Warn "CHANGELOG.md 里没有 $targetVersion 这一节,建议补上再发"
-        return "DeepSeek Harness 启动器 v$targetVersion"
+        return "大肥鱼Go启动器 v$targetVersion"
     }
 
     Ok "更新日志: 取到 $targetVersion 一节($($text.Length) 字符)"
@@ -82,7 +82,7 @@ function Get-ReleaseNotes([string]$targetVersion) {
 # ---------------------------------------------------------------- 版本号
 Say ''
 Say '========================================'
-Say '  DeepSeek Harness 启动器 发版'
+Say '  大肥鱼Go启动器 发版'
 Say '========================================'
 
 Say ''

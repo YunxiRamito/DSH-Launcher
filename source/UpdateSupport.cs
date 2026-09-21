@@ -23,8 +23,12 @@ namespace DeepSeekHarnessLauncher
     /// <summary>自更新。</summary>
     internal static class UpdateSupport
     {
-        /// <summary>版本清单地址。启动器仓库根目录的 manifest.json。</summary>
-        private const string Repository = "YunxiRamito/DSH-Launcher";
+        /// <summary>版本清单地址。1.4.9 过渡期同时保留新旧仓库。</summary>
+        private static readonly string[] Repositories = new string[]
+        {
+            Constants.Repository,
+            Constants.LegacyRepository
+        };
         private const string Branch = "main";
         private const string ManifestFile = "manifest.json";
 
@@ -54,17 +58,15 @@ namespace DeepSeekHarnessLauncher
             //
             // 每个候选都带时间戳:raw 和 jsDelivr 背后都有 CDN 缓存,
             // 不换 URL 就会读到旧清单,误判成"已经最新"。
-            string nonce = DateTime.UtcNow.Ticks.ToString();
-            string rawPath = Repository + "/" + Branch + "/" + ManifestFile;
-            string raw = "https://raw.githubusercontent.com/" + rawPath + "?t=" + nonce;
-            string jsdelivr = "https://cdn.jsdelivr.net/gh/" + Repository + "@" + Branch + "/" + ManifestFile + "?t=" + nonce;
-
             List<string> urls = new List<string>();
+            string nonce = DateTime.UtcNow.Ticks.ToString();
 
             if (official)
             {
-                urls.Add(raw);
-                urls.Add("https://api.github.com/repos/" + Repository + "/releases/latest");
+                foreach (string repository in Repositories)
+                {
+                    AddOfficialRepositoryUrls(urls, repository, nonce);
+                }
                 return urls.ToArray();
             }
 
@@ -74,17 +76,35 @@ namespace DeepSeekHarnessLauncher
             //   ghfast.top          超时
             //   raw.githubusercontent 超时  jsDelivr SSL 失败
             // 所以官方 API 放最前,它给的 releases/latest 结构在 ParseGitHubRelease 里转换。
-            urls.Add("https://api.github.com/repos/" + Repository + "/releases/latest");
-
-            for (int index = 0; index < GitHubPrefixes.Length; index++)
+            foreach (string repository in Repositories)
             {
-                urls.Add(GitHubPrefixes[index] + raw);
+                string rawPath = repository + "/" + Branch + "/" + ManifestFile;
+                string raw = "https://raw.githubusercontent.com/" + rawPath + "?t=" + nonce;
+                string jsdelivr = "https://cdn.jsdelivr.net/gh/" + repository + "@" + Branch + "/" + ManifestFile + "?t=" + nonce;
+
+                urls.Add("https://api.github.com/repos/" + repository + "/releases/latest");
+
+                for (int index = 0; index < GitHubPrefixes.Length; index++)
+                {
+                    urls.Add(GitHubPrefixes[index] + raw);
+                }
+
+                urls.Add(raw);
+                urls.Add(jsdelivr);
             }
 
-            urls.Add(raw);
-            urls.Add(jsdelivr);
-
             return urls.ToArray();
+        }
+
+        private static void AddOfficialRepositoryUrls(
+            List<string> urls,
+            string repository,
+            string nonce)
+        {
+            string rawPath = repository + "/" + Branch + "/" + ManifestFile;
+            string raw = "https://raw.githubusercontent.com/" + rawPath + "?t=" + nonce;
+            urls.Add(raw);
+            urls.Add("https://api.github.com/repos/" + repository + "/releases/latest");
         }
 
         /// <summary>GitHub 加速前缀,按实测可用性排序。</summary>
@@ -912,7 +932,8 @@ namespace DeepSeekHarnessLauncher
         {
             using (TimeoutWebClient client = new TimeoutWebClient(timeoutMs))
             {
-                client.Headers[HttpRequestHeader.UserAgent] = "DSH-Launcher/" + Constants.Version;
+                client.Headers[HttpRequestHeader.UserAgent] = Constants.UserAgent;
+                ProxySupport.Apply(client);
                 return client.DownloadString(url);
             }
         }
@@ -926,7 +947,8 @@ namespace DeepSeekHarnessLauncher
                 {
                     using (TimeoutWebClient client = new TimeoutWebClient(DownloadTimeoutMs))
                     {
-                        client.Headers[HttpRequestHeader.UserAgent] = "DSH-Launcher/" + Constants.Version;
+                        client.Headers[HttpRequestHeader.UserAgent] = Constants.UserAgent;
+                        ProxySupport.Apply(client);
                         if (progress != null)
                         {
                             client.DownloadProgressChanged += delegate(object sender, DownloadProgressChangedEventArgs args)

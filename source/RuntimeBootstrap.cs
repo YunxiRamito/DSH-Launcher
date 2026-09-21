@@ -6,14 +6,14 @@ using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("DeepSeek Harness")]
-[assembly: AssemblyProduct("DeepSeek Harness")]
+[assembly: AssemblyTitle("Dafeiyu-Go")]
+[assembly: AssemblyProduct("Dafeiyu-Go")]
 [assembly: AssemblyCompany("高性能萝卜子鲸鲸有限公司")]
-[assembly: AssemblyDescription("这是由高性能萝卜子编写的启动高性能萝卜子的启动器喵")]
+[assembly: AssemblyDescription("大肥鱼Go，面向 DeepSeek Harness 的 Windows 安装、启动与管理工具。")]
 [assembly: AssemblyCopyright("Copyright © 2026 Deepseek/KitamaruRamito")]
-[assembly: AssemblyVersion("1.4.2.0")]
-[assembly: AssemblyFileVersion("1.4.2.0")]
-[assembly: AssemblyInformationalVersion("1.4.2")]
+[assembly: AssemblyVersion("1.4.9.0")]
+[assembly: AssemblyFileVersion("1.4.9.0")]
+[assembly: AssemblyInformationalVersion("1.4.9")]
 
 namespace DeepSeekHarnessBootstrap
 {
@@ -40,8 +40,8 @@ namespace DeepSeekHarnessBootstrap
             if (!File.Exists(corePath))
             {
                 MessageBox.Show(
-                    "缺少主程序文件：\r\n" + corePath + "\r\n\r\n请重新解压或重新安装 DeepSeek Harness。",
-                    "DeepSeek Harness",
+                    "缺少主程序文件：\r\n" + corePath + "\r\n\r\n请重新解压或重新安装大肥鱼Go。",
+                    "大肥鱼Go",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return 2;
@@ -78,8 +78,8 @@ namespace DeepSeekHarnessBootstrap
             catch (Exception exception)
             {
                 MessageBox.Show(
-                    "启动 DeepSeek Harness 失败：\r\n" + exception.Message,
-                    "DeepSeek Harness",
+                    "启动大肥鱼Go失败：\r\n" + exception.Message,
+                    "大肥鱼Go",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return 3;
@@ -178,7 +178,7 @@ namespace DeepSeekHarnessBootstrap
         private static void ShowDependencyError(bool dotNetReady, bool appRuntimeReady)
         {
             string message =
-                "DeepSeek Harness 缺少运行组件。\r\n\r\n"
+                "大肥鱼Go缺少运行组件。\r\n\r\n"
                 + ".NET 8 Desktop Runtime："
                 + (dotNetReady ? "已安装" : "未安装")
                 + "\r\n"
@@ -194,7 +194,7 @@ namespace DeepSeekHarnessBootstrap
 
             DialogResult result = MessageBox.Show(
                 message,
-                "DeepSeek Harness",
+                "大肥鱼Go",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning);
             if (result != DialogResult.Yes)

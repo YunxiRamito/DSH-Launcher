@@ -22,15 +22,15 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <Version>1.4.2</Version>
-    <AssemblyVersion>1.4.2.0</AssemblyVersion>
-    <FileVersion>1.4.2.0</FileVersion>
-    <Product>DeepSeek Harness</Product>
-    <Title>DeepSeek Harness</Title>
-    <AssemblyTitle>DeepSeek Harness</AssemblyTitle>
+    <Version>1.4.9</Version>
+    <AssemblyVersion>1.4.9.0</AssemblyVersion>
+    <FileVersion>1.4.9.0</FileVersion>
+    <Product>Dafeiyu-Go</Product>
+    <Title>Dafeiyu-Go</Title>
+    <AssemblyTitle>Dafeiyu-Go</AssemblyTitle>
     <Authors>Deepseek/KitamaruRamito</Authors>
     <Company>高性能萝卜子鲸鲸有限公司</Company>
-    <Description>这是由高性能萝卜子编写的启动高性能萝卜子的启动器喵</Description>
+    <Description>大肥鱼Go，面向 DeepSeek Harness 的 Windows 安装、启动与管理工具。</Description>
     <Copyright>Copyright © 2026 Deepseek/KitamaruRamito</Copyright>
   </PropertyGroup>
 
@@ -39,11 +39,13 @@
     <Compile Remove="Program.cs" />
     <Compile Remove="RuntimeBootstrap.cs" />
     <EmbeddedResource Include="DeepSeekHarness.ico" LogicalName="AppIcon.ico" />
+    <Content Include="DeepSeekHarness.ico" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="assets\DeepSeek-icon.png" LogicalName="AppIcon.png" />
     <Content Include="assets\DeepSeek-icon.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\donate-alipay.jpg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\donate-wechat.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\SettingsNavIcons\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\plugin-placeholder.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\SettingsNavIconsWin10\*.svg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="assets\SettingsNavIconsWin10Dark\*.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

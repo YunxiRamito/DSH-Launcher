@@ -88,7 +88,8 @@ namespace DeepSeekHarnessLauncher
                     (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
                 request.Accept = "application/json";
-                request.UserAgent = "DSH-Launcher/" + Constants.Version;
+                request.UserAgent = Constants.UserAgent;
+                ProxySupport.Apply(request);
                 request.Timeout = 20000;
                 request.ReadWriteTimeout = 20000;
 
@@ -300,7 +301,8 @@ namespace DeepSeekHarnessLauncher
                     new TimeoutWebClient(DownloadTimeoutMs))
                 {
                     client.Headers[HttpRequestHeader.UserAgent] =
-                        "DSH-Launcher/" + Constants.Version;
+                        Constants.UserAgent;
+                    ProxySupport.Apply(client);
                     using (Stream source = client.OpenRead(package.TarballUrl))
                     using (FileStream target = new FileStream(
                         targetPath,
@@ -365,7 +367,8 @@ namespace DeepSeekHarnessLauncher
                 HttpWebRequest request =
                     (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "HEAD";
-                request.UserAgent = "DSH-Launcher/" + Constants.Version;
+                request.UserAgent = Constants.UserAgent;
+                ProxySupport.Apply(request);
                 request.Timeout = 20000;
                 request.ReadWriteTimeout = 20000;
                 request.AllowAutoRedirect = true;

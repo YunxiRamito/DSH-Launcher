@@ -88,7 +88,7 @@ jobs:
       - name: 存成构建产物(手动试跑时也能下载)
         uses: actions/upload-artifact@v7
         with:
-          name: DSH-Launcher-${{ steps.meta.outputs.version }}
+          name: Dafeiyu-Go-Launcher-${{ steps.meta.outputs.version }}
           path: ${{ steps.meta.outputs.zip }}
           if-no-files-found: error
 
@@ -143,7 +143,7 @@ jobs:
           files: ${{ steps.meta.outputs.zip }}
           generate_release_notes: true
           body: |
-            自动构建产物 `${{ steps.meta.outputs.zip }}`
+            大肥鱼Go启动器自动构建产物 `${{ steps.meta.outputs.zip }}`
 
             SHA256: `${{ steps.pack.outputs.sha256 }}`
 

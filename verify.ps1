@@ -36,7 +36,7 @@ function Head ([string]$m) { Write-Host ''; Write-Host $m -ForegroundColor Cyan 
 
 Write-Host ''
 Write-Host '============================================'
-Write-Host "  DeepSeek Harness 启动器 产物自检   v$Version"
+Write-Host "  大肥鱼Go启动器 产物自检   v$Version"
 Write-Host "  目录: $Dist"
 Write-Host '============================================'
 

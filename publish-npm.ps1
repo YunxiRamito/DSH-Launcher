@@ -57,13 +57,13 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 $pkg = [ordered]@{
     name        = $PackageName
     version     = $Version
-    description = 'DeepSeek Harness 启动器发行包(供国内镜像分发用,不是给人 require 的库)'
+    description = 'Dafeiyu-Go 启动器发行包(供国内镜像分发用,不是给人 require 的库)'
     license     = 'MIT'
     author      = 'Deepseek / KitamaruRamito'
-    homepage    = 'https://github.com/YunxiRamito/DSH-Launcher'
-    repository  = @{ type = 'git'; url = 'https://github.com/YunxiRamito/DSH-Launcher.git' }
+    homepage    = 'https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run'
+    repository  = @{ type = 'git'; url = 'https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run.git' }
     files       = @($zipName)
-    keywords    = @('deepseek', 'harness', 'launcher', 'dist')
+    keywords    = @('dafeiyu-go', 'deepseek', 'harness', 'launcher', 'dist')
 }
 
 $json = $pkg | ConvertTo-Json -Depth 4

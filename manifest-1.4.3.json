@@ -1,0 +1,11 @@
+{
+  "version": "1.4.3",
+  "sha256": "21e50104945a2f6f6583a6be50966136bb75ec28ad10b245fbefdc133d145699",
+  "subDirectory": "",
+  "assets": {
+    "github": "https://github.com/YunxiRamito/DSH-Launcher/releases/download/v1.4.3/DeepSeekHarness-1.4.3.zip",
+    "mirrors": []
+  },
+  "notes": "## 1.4.3\n\n**插件中心、代理与开发者后台**\n\n- 新增直连、系统代理和自定义 HTTP/HTTPS/SOCKS5 三种网络模式，更新、插件目录、余额和头像请求统一接入\n- 新增 DSH 插件市场与 GitHub 搜索两级来源，支持分类、已验证筛选、搜索、排序、分页和磁盘缓存\n- 在线插件安装改用市场提供的可执行安装候选，支持固定提交 SHA 的 GitHub 来源和 npm 来源\n- 插件卡片支持详情、安装进度、本地目录、卸载，以及单个和全部更新检查\n- 新增插件更新策略、更新提醒和更新完成通知；通知里的“好的”会重启 DSH，稍后再说保持当前服务\n- 官方推荐页改读仓库中的 `featured-plugins.json`，不再使用硬编码样例\n- 新增本地开发者管理中心，支持 GitHub 设备码或 Token 登录、云端角色名单、推荐列表增删改和提交到仓库\n- 新增组件页，支持检测和安装 .NET、Windows App Runtime、Node、MinGit、pnpm、Python\n- 便携组件的 Node、Git、pnpm、Python 目录会写入当前用户 PATH\n- 设置页补全代理配置、GitHub Token、插件来源、插件更新和组件管理界面\n\n---",
+  "releasedAt": "2026-09-22T00:39:52"
+}

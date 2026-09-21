@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -39,8 +40,12 @@ namespace DeepSeekHarnessLauncher
 {
     internal static class Constants
     {
-        public const string Title = "DeepSeek Harness";
-        public const string Version = "1.4.2";
+        public const string Title = "大肥鱼Go";
+        public const string EnglishTitle = "Dafeiyu-Go";
+        public const string Version = "1.4.9";
+        public const string Repository = "YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run";
+        public const string LegacyRepository = "YunxiRamito/DSH-Launcher";
+        public const string UserAgent = "Dafeiyu-Go/" + Version;
         public const int TrayIconId = 1;
     }
 
@@ -120,6 +125,15 @@ namespace DeepSeekHarnessLauncher
         internal static bool NoBrowser
         {
             get { return _noBrowser; }
+        }
+
+        internal static void RestartAfterPluginUpdate()
+        {
+            LauncherContext context = _currentContext;
+            if (context != null)
+            {
+                context.RestartAfterPluginUpdate();
+            }
         }
 
         internal static LauncherSettings Settings
@@ -398,7 +412,7 @@ namespace DeepSeekHarnessLauncher
             if (string.IsNullOrEmpty(nodePath))
             {
                 problem = "没有找到 Node.js。";
-                detail = "DeepSeek Harness 需要 Node.js 才能运行。\r\n\r\n"
+                detail = "大肥鱼Go需要 Node.js 才能运行。\r\n\r\n"
                     + "如果你是用 DSH Installer 装的,说明安装没走完;\r\n"
                     + "否则请先安装 Node.js 22 或更高版本,然后重新打开本程序。";
             }
@@ -476,7 +490,7 @@ namespace DeepSeekHarnessLauncher
             if (alreadyElevatedAttempt)
             {
                 WinFormsMessageBox.Show(
-                    "无法获得管理员权限，DeepSeek Harness 不能启动。",
+                    "无法获得管理员权限，大肥鱼Go不能启动。",
                     Constants.Title,
                     WinFormsMessageBoxButtons.OK,
                     WinFormsMessageBoxIcon.Error);
@@ -1014,7 +1028,7 @@ namespace DeepSeekHarnessLauncher
                     System.Reflection.BindingFlags.SetProperty,
                     null,
                     shortcut,
-                    new object[] { "DeepSeek Harness 开机自启(静默驻留托盘)" });
+                    new object[] { "大肥鱼Go开机自启(静默驻留托盘)" });
                 shortcutType.InvokeMember(
                     "Save",
                     System.Reflection.BindingFlags.InvokeMethod,
@@ -1169,6 +1183,7 @@ namespace DeepSeekHarnessLauncher
         /// <summary>自更新状态。</summary>
         private volatile bool _updateInProgress;
         private volatile bool _dshUpdateInProgress;
+        private int _pluginUpdateInProgress;
         private volatile bool _launcherUpdateRestartPending;
         private string _availableUpdateVersion;
         private UpdateManifest _pendingManifest;
@@ -1181,6 +1196,8 @@ namespace DeepSeekHarnessLauncher
         private volatile UpdateUiSnapshot _launcherUpdateUi =
             new UpdateUiSnapshot();
         private volatile UpdateUiSnapshot _dshUpdateUi =
+            new UpdateUiSnapshot();
+        private volatile UpdateUiSnapshot _pluginUpdateUi =
             new UpdateUiSnapshot();
 
         /// <summary>服务是不是本进程拉起来的。不是的话退出时不该去杀别人的进程。</summary>
@@ -1253,6 +1270,7 @@ namespace DeepSeekHarnessLauncher
             _logWriter = new StreamWriter(_logPath, true, new UTF8Encoding(false));
             _logWriter.AutoFlush = true;
             WriteLog("Launcher started. Version " + Constants.Version + ", elevated=" + IsAdministrator());
+            WriteLog("网络代理：" + ProxySupport.Describe(_settings));
 
             _appIcon = LoadAppIcon();
             _trayIcon = new NativeTrayIcon(Constants.TrayIconId, Constants.Title + " 正在启动...", _appIcon);
@@ -1415,6 +1433,13 @@ namespace DeepSeekHarnessLauncher
             LauncherSettingsStore.Save(_settings);
             RunLauncherUpdate(false);
             RunDshUpdate(false);
+            RunPluginUpdates(
+                false,
+                String.Equals(
+                    _settings.PluginUpdateMode,
+                    "Install",
+                    StringComparison.OrdinalIgnoreCase),
+                null);
         }
 
         private bool IsAutomaticUpdateCheckDue()
@@ -1425,6 +1450,10 @@ namespace DeepSeekHarnessLauncher
                     StringComparison.OrdinalIgnoreCase)
                 && String.Equals(
                     _settings.DshUpdateMode,
+                    "Off",
+                    StringComparison.OrdinalIgnoreCase)
+                && String.Equals(
+                    _settings.PluginUpdateMode,
                     "Off",
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -2053,8 +2082,12 @@ namespace DeepSeekHarnessLauncher
                     InstallLauncherUpdate = InstallLauncherUpdateForSettings,
                     CheckDshUpdate = CheckDshUpdateForSettings,
                     InstallDshUpdate = InstallDshUpdateForSettings,
+                    CheckPluginUpdates = CheckPluginUpdatesForSettings,
+                    InstallPluginUpdates = InstallAllPluginUpdatesForSettings,
+                    InstallPluginUpdate = InstallPluginUpdateForSettings,
                     GetLauncherUpdateState = delegate { return _launcherUpdateUi; },
                     GetDshUpdateState = delegate { return _dshUpdateUi; },
+                    GetPluginUpdateState = delegate { return _pluginUpdateUi; },
                     ApplyApiKey = ApplyApiKeyFromSettings,
                     RefreshBalance = RefreshBalanceAsync,
                     SynchronizeInstallerPaths = SynchronizeInstallerPaths,
@@ -2556,6 +2589,220 @@ namespace DeepSeekHarnessLauncher
             thread.Start();
         }
 
+        private void CheckPluginUpdatesForSettings()
+        {
+            StartPluginUpdateThread(false, null);
+        }
+
+        private void InstallAllPluginUpdatesForSettings()
+        {
+            StartPluginUpdateThread(true, null);
+        }
+
+        private void InstallPluginUpdateForSettings(string key)
+        {
+            StartPluginUpdateThread(true, key);
+        }
+
+        private void StartPluginUpdateThread(bool install, string onlyKey)
+        {
+            Thread thread = new Thread(delegate()
+            {
+                RunPluginUpdates(true, install, onlyKey);
+            });
+            thread.IsBackground = true;
+            thread.Name = "DeepSeekHarnessPluginUpdate";
+            thread.Start();
+        }
+
+        private void RunPluginUpdates(
+            bool manual,
+            bool install,
+            string onlyKey)
+        {
+            if (!manual
+                && String.Equals(
+                    _settings.PluginUpdateMode,
+                    "Off",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(
+                ref _pluginUpdateInProgress,
+                1,
+                0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                UpdatePluginUi(
+                    UpdateUiActivity.Checking,
+                    String.Empty,
+                    "检测插件更新中",
+                    -1,
+                    true,
+                    String.Empty);
+                PluginUpdateCheckResult check = PluginUpdateService.Check(
+                    _settings,
+                    manual,
+                    WriteLog);
+                if (!String.IsNullOrWhiteSpace(check.Error)
+                    && check.Updates.Count == 0)
+                {
+                    UpdatePluginUi(
+                        UpdateUiActivity.Failed,
+                        String.Empty,
+                        "检查失败",
+                        0,
+                        false,
+                        check.Error);
+                    return;
+                }
+
+                List<PluginUpdateMatch> updates =
+                    new List<PluginUpdateMatch>();
+                for (int index = 0; index < check.Updates.Count; index++)
+                {
+                    PluginUpdateMatch match = check.Updates[index];
+                    if (String.IsNullOrWhiteSpace(onlyKey)
+                        || String.Equals(
+                            match.Key,
+                            onlyKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        updates.Add(match);
+                    }
+                }
+
+                if (updates.Count == 0)
+                {
+                    UpdatePluginUi(
+                        UpdateUiActivity.UpToDate,
+                        String.Empty,
+                        "插件已是最新",
+                        0,
+                        false,
+                        "没有发现需要更新的插件。");
+                    return;
+                }
+
+                if (!install)
+                {
+                    UpdatePluginUi(
+                        UpdateUiActivity.Available,
+                        String.Empty,
+                        "发现插件更新",
+                        0,
+                        false,
+                        "发现 " + updates.Count + " 个插件可更新。");
+                    return;
+                }
+
+                int succeeded = 0;
+                List<string> failures = new List<string>();
+                for (int index = 0; index < updates.Count; index++)
+                {
+                    PluginUpdateMatch match = updates[index];
+                    double baseProgress = index * 100.0 / updates.Count;
+                    double span = 100.0 / updates.Count;
+                    UpdatePluginUi(
+                        UpdateUiActivity.Installing,
+                        String.Empty,
+                        "正在更新 " + match.Key,
+                        baseProgress,
+                        false,
+                        (index + 1) + " / " + updates.Count);
+                    PluginStoreService.InstallResult installResult =
+                        PluginUpdateService.Install(
+                            _settings,
+                            match,
+                            delegate(string text, double progress)
+                            {
+                                UpdatePluginUi(
+                                    UpdateUiActivity.Installing,
+                                    String.Empty,
+                                    match.Key + " · " + text,
+                                    baseProgress + span * progress / 100.0,
+                                    false,
+                                    (index + 1) + " / " + updates.Count);
+                            },
+                            WriteLog);
+                    if (installResult.Ok)
+                    {
+                        succeeded++;
+                    }
+                    else
+                    {
+                        failures.Add(
+                            match.Key + "：" + (installResult.Error
+                                ?? "未知错误"));
+                    }
+                }
+
+                if (failures.Count > 0)
+                {
+                    UpdatePluginUi(
+                        UpdateUiActivity.Failed,
+                        String.Empty,
+                        "插件更新失败",
+                        succeeded * 100.0 / updates.Count,
+                        false,
+                        String.Join("；", failures.ToArray()));
+                    return;
+                }
+
+                UpdatePluginUi(
+                    UpdateUiActivity.Completed,
+                    String.Empty,
+                    "插件更新完成",
+                    100,
+                    false,
+                    "已更新 " + succeeded + " 个插件，重启 DSH 后生效。");
+                if (_settings.PluginUpdateReminder)
+                {
+                    NotificationService.ShowPluginUpdateCompleted(succeeded);
+                }
+            }
+            catch (Exception exception)
+            {
+                UpdatePluginUi(
+                    UpdateUiActivity.Failed,
+                    String.Empty,
+                    "插件更新失败",
+                    0,
+                    false,
+                    DescribeException(exception));
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _pluginUpdateInProgress, 0);
+            }
+        }
+
+        private void UpdatePluginUi(
+            UpdateUiActivity activity,
+            string version,
+            string progressText,
+            double progress,
+            bool indeterminate,
+            string detail)
+        {
+            _pluginUpdateUi = new UpdateUiSnapshot
+            {
+                Activity = activity,
+                Version = version ?? String.Empty,
+                ProgressText = progressText ?? String.Empty,
+                Progress = progress,
+                IsIndeterminate = indeterminate,
+                Detail = detail ?? String.Empty
+            };
+            PublishUpdateState();
+        }
+
         private void UpdateLauncherUi(
             UpdateUiActivity activity,
             string version,
@@ -2667,7 +2914,7 @@ namespace DeepSeekHarnessLauncher
             if (wasRunning)
             {
                 WinFormsDialogResult result = WinFormsMessageBox.Show(
-                    "确定要重启 DeepSeek Harness 服务吗？当前网页连接会暂时中断。",
+                    "确定要重启 DSH 服务吗？当前网页连接会暂时中断。",
                     Constants.Title,
                     WinFormsMessageBoxButtons.OKCancel,
                     WinFormsMessageBoxIcon.Question,
@@ -2686,8 +2933,8 @@ namespace DeepSeekHarnessLauncher
             {
                 ShowNotification(
                     wasRunning
-                        ? "正在重启 DeepSeek Harness 服务..."
-                        : "正在启动 DeepSeek Harness 服务...",
+                        ? "正在重启 DSH 服务..."
+                        : "正在启动 DSH 服务...",
                     false);
             }
 
@@ -2697,10 +2944,15 @@ namespace DeepSeekHarnessLauncher
             restartThread.Start();
         }
 
+        internal void RestartAfterPluginUpdate()
+        {
+            InvokeOnUi(RestartItemClick);
+        }
+
         private void ForceStopItemClick()
         {
             WinFormsDialogResult result = WinFormsMessageBox.Show(
-                "确定要强行终止 DeepSeek Harness 服务吗？",
+                "确定要强行终止 DSH 服务吗？",
                 Constants.Title,
                 WinFormsMessageBoxButtons.OKCancel,
                 WinFormsMessageBoxIcon.Warning,
@@ -2715,14 +2967,14 @@ namespace DeepSeekHarnessLauncher
                 SetTrayState(false, Constants.Title + " 已停止");
                 if (_settings.ServiceStartReminder)
                 {
-                    ShowNotification("DeepSeek Harness 服务已被强行终止。", true);
+                    ShowNotification("DSH 服务已被强行终止。", true);
                 }
             }
             else
             {
                 if (_settings.ServiceStartReminder)
                 {
-                    ShowNotification("没有找到正在运行的 DeepSeek Harness 服务。", true);
+                    ShowNotification("没有找到正在运行的 DSH 服务。", true);
                 }
             }
         }
@@ -2732,7 +2984,7 @@ namespace DeepSeekHarnessLauncher
             if (_serviceRunning)
             {
                 WinFormsDialogResult result = WinFormsMessageBox.Show(
-                    "退出托盘程序将同时停止 DeepSeek Harness 服务。是否继续？",
+                    "退出大肥鱼Go将同时停止 DSH 服务。是否继续？",
                     Constants.Title,
                     WinFormsMessageBoxButtons.OKCancel,
                     WinFormsMessageBoxIcon.Question,
@@ -3023,7 +3275,7 @@ namespace DeepSeekHarnessLauncher
             {
                 if (!StartService())
                 {
-                    FailStartup("无法创建 DeepSeek Harness 服务进程。");
+                    FailStartup("无法创建 DSH 服务进程。");
                     return;
                 }
 
@@ -3042,7 +3294,7 @@ namespace DeepSeekHarnessLauncher
             {
                 _suppressExitNotification = true;
                 StopService();
-                FailStartup("DeepSeek Harness 服务启动失败：" + exception.Message + Environment.NewLine + "日志：" + _logPath);
+                FailStartup("DSH 服务启动失败：" + exception.Message + Environment.NewLine + "日志：" + _logPath);
             }
         }
 
@@ -3063,7 +3315,7 @@ namespace DeepSeekHarnessLauncher
                     {
                         if (_service.HasExited)
                         {
-                            failureMessage = "DeepSeek Harness 服务启动失败，进程已退出。退出代码：" + _service.ExitCode;
+                            failureMessage = "DSH 服务启动失败，进程已退出。退出代码：" + _service.ExitCode;
                             return false;
                         }
                     }
@@ -3081,7 +3333,7 @@ namespace DeepSeekHarnessLauncher
                 Thread.Sleep(500);
             }
 
-            failureMessage = "DeepSeek Harness 服务启动超时。请查看日志：" + _logPath;
+            failureMessage = "DSH 服务启动超时。请查看日志：" + _logPath;
             return false;
         }
 
@@ -3264,7 +3516,7 @@ namespace DeepSeekHarnessLauncher
                 else if (_settings.ServiceStartReminder)
                 {
                     ShowNotification(
-                        openPage ? "DeepSeek Harness 服务启动已成功。" : "DeepSeek Harness 服务重启成功。",
+                        openPage ? "DSH 服务启动已成功。" : "DSH 服务重启成功。",
                         false);
                 }
 
@@ -3365,7 +3617,7 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 WinFormsMessageBox.Show(
-                    "DeepSeek Harness 服务当前没有运行。请使用“重启 DSH 服务”重新启动。",
+                    "DSH 服务当前没有运行。请使用“重启 DSH 服务”重新启动。",
                     Constants.Title,
                     WinFormsMessageBoxButtons.OK,
                     WinFormsMessageBoxIcon.Warning);
@@ -3375,7 +3627,7 @@ namespace DeepSeekHarnessLauncher
             if (!IsServiceReady())
             {
                 WinFormsMessageBox.Show(
-                    "DeepSeek Harness 服务当前没有响应。请使用“重启 DSH 服务”。",
+                    "DSH 服务当前没有响应。请使用“重启 DSH 服务”。",
                     Constants.Title,
                     WinFormsMessageBoxButtons.OK,
                     WinFormsMessageBoxIcon.Warning);
@@ -3428,7 +3680,7 @@ namespace DeepSeekHarnessLauncher
 
                 if (!StartService())
                 {
-                    FailRestart("无法重新创建 DeepSeek Harness 服务进程。");
+                    FailRestart("无法重新创建 DSH 服务进程。");
                     return;
                 }
 
@@ -3447,7 +3699,7 @@ namespace DeepSeekHarnessLauncher
             {
                 _suppressExitNotification = true;
                 StopService();
-                FailRestart("DeepSeek Harness 服务重启失败：" + exception.Message);
+                FailRestart("DSH 服务重启失败：" + exception.Message);
             }
         }
 
@@ -3793,6 +4045,7 @@ namespace DeepSeekHarnessLauncher
                 }
 
                 _trayMenu.Close();
+                DeveloperCenterServer.Stop();
                 NotificationService.Shutdown();
                 _trayIcon.Dispose();
                 WriteLog("Launcher stopped.");
@@ -3834,7 +4087,7 @@ namespace DeepSeekHarnessLauncher
         public WinUIApiSettingsDialog(string currentApiKey)
         {
             _window = new WinUIWindow();
-            _window.Title = "DeepSeek Harness API 设置";
+            _window.Title = "大肥鱼Go API 设置";
             _window.AppWindow.IsShownInSwitchers = true;
 
             OverlappedPresenter presenter = _window.AppWindow.Presenter as OverlappedPresenter;
@@ -5746,6 +5999,7 @@ namespace DeepSeekHarnessLauncher
         private static NativeTrayIcon _fallbackTray;
         private static DispatcherQueue _dispatcherQueue;
         private static bool _registered;
+        private static bool _notificationHandlerAttached;
         private static AppNotificationSetting _setting = AppNotificationSetting.Unsupported;
         private static readonly System.Collections.Generic.List<WinUINotificationWindow> Windows =
             new System.Collections.Generic.List<WinUINotificationWindow>();
@@ -5761,6 +6015,12 @@ namespace DeepSeekHarnessLauncher
             {
                 AppNotificationManager.Default.Register();
                 _registered = true;
+                if (!_notificationHandlerAttached)
+                {
+                    AppNotificationManager.Default.NotificationInvoked +=
+                        OnNotificationInvoked;
+                    _notificationHandlerAttached = true;
+                }
                 try
                 {
                     _setting = AppNotificationManager.Default.Setting;
@@ -5804,6 +6064,54 @@ namespace DeepSeekHarnessLauncher
             }
 
             return _fallbackTray != null && _fallbackTray.ShowBalloon(message, critical);
+        }
+
+        public static bool ShowPluginUpdateCompleted(int count)
+        {
+            if (!_registered)
+            {
+                return Show(
+                    "插件更新完成，重启 DSH 后生效。",
+                    false);
+            }
+
+            try
+            {
+                AppNotification notification = new AppNotificationBuilder()
+                    .AddText("插件更新完成")
+                    .AddText(
+                        "已更新 " + count + " 个插件，重启 DSH 后生效。")
+                    .AddButton(
+                        new AppNotificationButton("好的")
+                            .AddArgument("action", "restart"))
+                    .AddButton(
+                        new AppNotificationButton("稍后再说")
+                            .AddArgument("action", "later"))
+                    .BuildNotification();
+                AppNotificationManager.Default.Show(notification);
+                return true;
+            }
+            catch
+            {
+                return Show(
+                    "插件更新完成，重启 DSH 后生效。",
+                    false);
+            }
+        }
+
+        private static void OnNotificationInvoked(
+            AppNotificationManager sender,
+            AppNotificationActivatedEventArgs args)
+        {
+            string action;
+            if (args.Arguments.TryGetValue("action", out action)
+                && String.Equals(
+                    action,
+                    "restart",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Program.RestartAfterPluginUpdate();
+            }
         }
 
         private static bool ShowWinUiNotification(string message, bool critical)
@@ -5872,6 +6180,12 @@ namespace DeepSeekHarnessLauncher
 
             try
             {
+                if (_notificationHandlerAttached)
+                {
+                    AppNotificationManager.Default.NotificationInvoked -=
+                        OnNotificationInvoked;
+                    _notificationHandlerAttached = false;
+                }
                 AppNotificationManager.Default.Unregister();
             }
             catch
@@ -6379,6 +6693,7 @@ namespace DeepSeekHarnessLauncher
         internal const long WS_POPUP = unchecked((int)0x80000000);
         internal const int WS_EX_LAYERED = 0x00080000;
         internal const int WS_EX_TOOLWINDOW = 0x00000080;
+        internal const int WS_EX_APPWINDOW = 0x00040000;
         internal const int WS_EX_NOACTIVATE = 0x08000000;
         internal const int LWA_ALPHA = 0x00000002;
         internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;

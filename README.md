@@ -1,9 +1,13 @@
-# DeepSeek Harness Launcher
+# 大肥鱼Go / Dafeiyu-Go
 
-**给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 用的 Windows 托盘启动器。**
+**面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 安装、启动与管理工具。**
 一句话:双击一下,DSH 服务就起来了,托盘里住着,余额随时看。
 
-<sub>Windows 托盘启动器 · 一键起服务 · 原生菜单 · 余额与告警 · 中英双语</sub>
+<sub>Dafeiyu-Go · Windows 托盘启动器 · 一键起服务 · 原生菜单 · 余额与告警 · 中英双语</sub>
+
+> **1.4.9 过渡版**：界面和发布仓库先切换为“大肥鱼Go / Dafeiyu-Go”，
+> 但 `DeepSeek Harness.exe`、数据目录、注册表键、计划任务和 npm 包名保持不变。
+> 详细兼容边界见 [`TRANSITION.md`](TRANSITION.md)。
 
 ---
 
@@ -32,7 +36,7 @@ DSH 本体是个跑在本机的 Web 服务(`127.0.0.1:8787`),平时要么开个�
 
 ### 手动:直接下 zip
 
-1. 到 [Releases](https://github.com/YunxiRamito/DSH-Launcher/releases) 下最新的
+1. 到 [Releases](https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run/releases) 下最新的
    `DeepSeekHarness-<版本>.zip`
 2. 解压到 **DSH 根目录下** 的 `DeepSeek Harness\` 里,变成这样:
 
@@ -181,7 +185,7 @@ DeepSeek Starter\
 | 项目 | 关系 |
 |------|------|
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | 被启动的本体 |
-| **DSH Installer** | 安装程序,读本仓库的 `manifest.json` 下载启动器并部署 |
+| **Dafeiyu-Go Setup** | 安装程序,读本仓库的 `manifest.json` 下载启动器并部署 |
 | RivaTuner / RTSS | 无关系,但注入图形钩子时可能互相影响 |
 
 启动器不打包进安装程序,安装程序每次现下最新版 —— 所以**这个仓库发新版,装机的人立刻就能拿到**。
@@ -211,7 +215,7 @@ Double-click once, the DSH web service comes up and lives in your tray with your
 ### Install
 
 Grab `DeepSeekHarness-<version>.zip` from
-[Releases](https://github.com/YunxiRamito/DSH-Launcher/releases) and extract it into
+[Releases](https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run/releases) and extract it into
 `<your DSH root>\DeepSeek Harness\`, then run `DeepSeek Harness.exe`.
 
 The launcher locates DSH by checking `DSH_ROOT`, then a sibling `launcher.json`,

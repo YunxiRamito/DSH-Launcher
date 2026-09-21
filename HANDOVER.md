@@ -1,9 +1,62 @@
-# 交接：DSH Launcher 1.4.2
+# 交接：大肥鱼Go / Dafeiyu-Go Launcher 1.4.9
 
-> 当前启动器基线为 `1.4.2`。本文件只描述当前有效状态、操作流程、风险和下一步，
+> `1.4.9` 是品牌过渡版。可见品牌改为“大肥鱼Go / Dafeiyu-Go”，内部可执行文件名、
+> 数据目录、注册表键、计划任务、快捷方式和 npm 包名保持不变。迁移边界与发布顺序
+> 以 [`TRANSITION.md`](TRANSITION.md) 为准。
+
+> 当前启动器工作版本为 `1.4.9`。本文件只描述当前有效状态、操作流程、风险和下一步，
 > 不再保留 1.3.x 历史开发记录。
 
 最后更新：2026-09-21
+
+---
+
+## 零、1.4.9 当前状态（接手先读这一节）
+
+> `1.4.9` 是品牌过渡版：界面与仓库先切到“大肥鱼Go / Dafeiyu-Go”，内部兼容标识不变。
+> 代码和本机构建已完成，`1.4.9` **尚未提交、打 tag 或发布**。后面的 `1.4.2`
+> 章节保留为已发布基线说明，当前有效状态以本节为准。
+
+### 已经做完并验证过的
+
+| 模块 | 状态 |
+|------|------|
+| 代理设置 | 完成。`ProxySupport.cs`，直连/系统/自定义(http·https·socks5)，回环强制绕过；已接到更新清单、更新包下载、DSH npm 元数据与 tgz、余额查询、B 站头像；子进程(pnpm/git)走环境变量；DSH 本体进程不接管 |
+| 在线引擎两级来源 | 完成。常规页「在线引擎」(大陆 CDN 加速/官方源) + 「插件来源」(DSH 插件市场（优先）/ GitHub 大陆节点或 GitHub 官方)，落盘字段 `updateSource` / `pluginSource` |
+| 插件目录 | 完成。主源 `api.dshmk.com`（**必须带 `Accept-Encoding: gzip`，否则 6.7MB 裸传必然超时**），校验 `schemaVersion == 1`、只收 `projectType == plugin`、已验证判定用 `validation.overall == "verified"`；GitHub 搜索接口作兜底。实测 2500 条，磁盘缓存 1.3MB |
+| 本地插件页 | 完成。扫 profile 依赖，版本/说明读插件自己的 package.json，图标只认插件目录里的 icon/logo |
+| 安装链路 | 完成。支持市场 `install.candidates`、固定 SHA 的 GitHub 压缩包和 `npm:` 来源；GitHub 来源仍按源码落到 `<dshRoot>\plugins\<名字>` 并写 `link:` |
+| 插件更新 | 完成。对比 `PluginInstalls.json` 与在线目录的 `pushedAt`，支持单个检查、单个更新、全部更新和更新策略 |
+| 更新通知 | 完成。更新后发 AppNotification，按钮为“好的 / 稍后再说”；“好的”重启 DSH |
+| 官方推荐 | 完成。读仓库根目录 `featured-plugins.json`，支持远端、磁盘缓存、内置兜底、搜索和分页 |
+| 开发者管理中心 | 完成。`127.0.0.1:8788` 本地后台，GitHub 设备码或 Token 登录、`developer-roles.json` 角色校验、推荐列表增删改和 GitHub Contents API 提交 |
+| 组件页 | 完成检测+安装六项：.NET 8 桌面运行时、Windows App Runtime 1.8、Node 22 LTS、MinGit、pnpm、Python；源跟随在线引擎 |
+| 组件 PATH | 完成。便携 Node、Git、pnpm、Python 目录写入当前用户 PATH，同时保留启动器绝对路径兜底 |
+| 插件页 UI | 三处分页（官方推荐/在线插件/本地插件）、每页 9/18/36/54、搜索、分类(含"已验证")、排序、本语言优先、图标三级回退(API 图片→仓库 icon→GitHub 标记)、卡片内嵌进度按钮、详情卡片、卸载确认 |
+| 版本和日志 | `1.4.9` 已同步到 csproj、manifest、设置页和 `Constants.Version`；`CHANGELOG.md` 已写 1.4.9 |
+
+### 还没完成的收尾
+
+1. 当前代码尚未提交，`v1.4.9` tag、GitHub Release、npm/npmmirror 包都还不存在。
+2. 尚未在**真实用户 profile** 上执行安装、更新和卸载；目前使用临时 DSH 根目录验证，避免污染环境。
+3. GitHub 设备码流程需要实际 OAuth App 的 Client ID 才能联调；页面支持输入 Client ID，也支持 `DSH_GITHUB_CLIENT_ID` 环境变量。
+4. `developer-roles.json` 的成员列表目前为空，只有仓库所有者 `YunxiRamito` 默认是超级管理员。
+5. `featured-plugins.json` 和 `developer-roles.json` 已写好，但必须提交到 `main` 后，已安装客户端才能从远端读取。
+6. `release.ps1` / `verify.ps1` 和最终 zip 仍未运行。
+7. 在线插件卡片底部按钮已改为两列等宽，`查看详情` 内容恢复居中；还需要在目标机器上做最后一轮视觉确认。
+8. Windows 10 真机仍需复核应用内视觉、完整更新链和退出行为。
+
+### 调试手法（这次用得很多，接着用）
+
+- `source\build-winui.ps1 -OutputDirectory <目录>` 编译；别忘它会把输出目录整个清空。
+- 设置窗可以单独起：`DeepSeek Harness.Core.exe --settings-preview=Plugins:Online`
+  （分页用 `Plugins:Local` / `Plugins:Featured`，其它页传 `General`/`Api`/`Alerts`/`Updates`/`Components`）。
+- 预览模式的日志写在 `%LOCALAPPDATA%\DeepSeekHarness\settings-preview.log`，
+  主进程日志仍是 `launcher.log`。排查数据问题就看它（例如"插件市场：解析出 2500 条"）。
+- 界面控件有没有真的渲染出来、按钮点不点得动，用 PowerShell 5.1 + UIAutomation 验：
+  `%TEMP%\dsh-plugin-selftest\click-test.ps1`（点"查看详情"并报数量/截图）、
+  `measure.ps1`（量按钮坐标宽度）。中文控件名要用字符码构造，PS5.1 读不了无 BOM 的
+  UTF-8 脚本里的中文。
 
 ---
 
@@ -13,8 +66,8 @@
 
 | 项目 | 仓库 | 基线 | 最新 tag | 状态 |
 |------|------|------|----------|------|
-| DSH Launcher | `https://github.com/YunxiRamito/DSH-Launcher` | `b832345` 之后 | `v1.4.2` | 已发布 |
-| DSH Installer | `https://github.com/YunxiRamito/dsh-installer` | `b550288` | `v1.0.0` | 本轮未修改 |
+| Dafeiyu-Go Launcher | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` | `74cec49` 之后 | `v1.4.9` | 待发布 |
+| Dafeiyu-Go Setup | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Setup` | `b550288` | `v1.4.9` | 待发布 |
 
 启动器 1.4.2：
 

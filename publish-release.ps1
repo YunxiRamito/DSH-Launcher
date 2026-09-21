@@ -5,7 +5,7 @@
 param(
     [string]$Version,
     [string]$Token,
-    [string]$Repository = 'YunxiRamito/DSH-Launcher',
+    [string]$Repository = 'YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run',
     [switch]$SkipAsset,
     [switch]$Commit   # 顺手把代码/manifest 提交并推 tag(推荐带上)
 )
@@ -34,7 +34,7 @@ $Tag = "v$Version"
 $Headers = @{
     Authorization          = "Bearer $Token"
     Accept                 = 'application/vnd.github+json'
-    'User-Agent'           = 'DSH-Launcher-Release'
+    'User-Agent'           = 'Dafeiyu-Go-Release'
     'X-GitHub-Api-Version' = '2022-11-28'
 }
 
@@ -79,7 +79,7 @@ if ($releaseBody) {
     Ok "更新日志: 从 manifest.json 取到 $($releaseBody.Length) 字符"
 } else {
     Warn 'manifest.json 里没有对应版本的更新日志,Release 正文只能放最简说明'
-    $releaseBody = "DeepSeek Harness 启动器 v$Version"
+    $releaseBody = "大肥鱼Go启动器 v$Version"
 }
 
 # 3) release 在不在,不在就建

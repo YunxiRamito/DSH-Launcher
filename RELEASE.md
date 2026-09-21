@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |----|-----|
-| 启动器仓库 | `https://github.com/YunxiRamito/DSH-Launcher` |
+| 启动器仓库 | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` |
 | 默认分支 | `main` |
 | 本地已初始化 git,remote `origin` 已配好 | `G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter` |
 | 首批产物 | `DeepSeekHarness-1.3.9.zip`(10.4MB) |
@@ -20,10 +20,10 @@
 ```powershell
 cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
 git add -A
-git commit -m "feat: DeepSeek Harness 启动器 1.3.9"
+git commit -m "release: 大肥鱼Go启动器 1.4.9"
 git tag v1.3.9
 git push -u origin main --tags
-# 然后把 DeepSeekHarness-1.3.9.zip 传到 v1.3.9 的 Release 资产里
+# 然后把 DeepSeekHarness-1.4.9.zip 传到 v1.4.9 的 Release 资产里
 ```
 
 之后每次发版只需 `.\release.ps1` + 上面那几条 git 命令。

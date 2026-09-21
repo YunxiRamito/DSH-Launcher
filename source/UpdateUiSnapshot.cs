@@ -7,6 +7,7 @@ namespace DeepSeekHarnessLauncher
         Installing,
         UpToDate,
         Available,
+        Completed,
         Failed
     }
 

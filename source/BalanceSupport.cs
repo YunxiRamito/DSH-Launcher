@@ -177,6 +177,7 @@ namespace DeepSeekHarnessLauncher
                     request.UserAgent = "DeepSeek-Harness-Launcher/1.3.6";
                     request.Timeout = 20000;
                     request.ReadWriteTimeout = 20000;
+                    ProxySupport.Apply(request);
                     request.Headers["Authorization"] = "Bearer " + apiKey;
 
                     using (WebResponse response = request.GetResponse())
