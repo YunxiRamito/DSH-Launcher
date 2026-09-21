@@ -6,6 +6,6 @@
     "github": "https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run/releases/download/v1.4.9/DeepSeekHarness-1.4.9.zip",
     "mirrors": []
   },
-  "notes": "## 1.4.9\n\n**大肥鱼Go品牌过渡版**\n\n- 产品显示名切换为中文“大肥鱼Go”、英文 `Dafeiyu-Go`\n- 设置窗口、托盘提示、通知、程序集属性与安装文案完成品牌更新\n- 发布仓库切换到 `Dafeiyu-Go-DeepSeek-Harness-Click-To-Run`\n- 自更新同时保留新旧仓库候选，避免仓库改名期间升级链路中断\n- 安装器配套版本同步提升到 `1.4.9`\n- `DeepSeek Harness.exe`、数据目录、注册表键、计划任务、快捷方式和 npm 包名保持兼容\n\n---",
-  "releasedAt": "2026-09-22T01:07:58"
+  "notes": "## 1.4.9\n\n**Dafeiyu-Go 过渡升级版本**\n\n> 本版合并了此前未正式发布的 `1.4.3` 功能。\n\n### DSH 启动器\n\n- 产品更名为“大肥鱼Go / Dafeiyu-Go”，安装器与启动器仓库完成新名称迁移。\n- 新增代理设置，可接入本地 Proxy 软件，改善中国大陆网络环境下的下载与访问体验。\n- 新增 DSH 插件板块，支持分类、搜索、排序、分页和缓存，并支持插件详情、安装进度、本地目录、卸载、单个更新和全部更新。\n- 新增组件板块，支持检测和安装 .NET、Windows App Runtime、Node、MinGit、pnpm、Python。\n- 修复若干已知问题并提升稳定性。\n\n### 安装程序\n\n- 产品更名为“大肥鱼Go / Dafeiyu-Go”，安装器与启动器仓库完成新名称迁移。\n- 安装器升级 Mica Alt，并跟随 Windows 主机亮暗主题；不支持时自动回退 Acrylic。\n- 修复组件页、步骤条、卡片、完成页和卸载页的深色主题适配。\n\n---",
+  "releasedAt": "2026-09-22T01:26:04"
 }
