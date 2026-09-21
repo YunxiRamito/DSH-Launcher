@@ -197,18 +197,24 @@ if (-not $NoManifest) {
     Say '[5/5] 跳过 manifest.json（构建验证模式）'
 }
 
-Say ''
-Say '----------------------------------------'
-Say '接下来手动执行(或者用 GitHub 网页发 release):'
-Say ''
-Say "  git add manifest.json"
-Say "  git commit -m `"release: v$version`""
-Say "  git tag v$version"
-Say "  git push origin main --tags"
-Say ''
-Say "  然后把 $zipName 作为资产传到 v$version 这个 release 下:"
-Say "  $assetUrl"
-Say '----------------------------------------'
-Say ''
-Say '提示:推完 release 之后,安装器会自动读到这一版,不用重发安装器。'
+if (-not $NoManifest) {
+    Say ''
+    Say '----------------------------------------'
+    Say '接下来手动执行(或者用 GitHub 网页发 release):'
+    Say ''
+    Say "  git add manifest.json"
+    Say "  git commit -m `"release: v$version`""
+    Say "  git tag v$version"
+    Say "  git push origin main --tags"
+    Say ''
+    Say "  然后把 $zipName 作为资产传到 v$version 这个 release 下:"
+    Say "  $assetUrl"
+    Say '----------------------------------------'
+    Say ''
+    Say '提示:推完 release 之后,安装器会自动读到这一版,不用重发安装器。'
+} else {
+    Say ''
+    Say "构建验证完成: $zipName"
+    Say '未修改 manifest.json，也未生成发布链接。'
+}
 Say ''
