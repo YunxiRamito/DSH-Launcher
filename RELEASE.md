@@ -11,22 +11,22 @@
 |----|-----|
 | 启动器仓库 | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` |
 | 默认分支 | `main` |
-| 本地已初始化 git,remote `origin` 已配好 | `G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter` |
-| 首批产物 | `DeepSeekHarness-1.3.9.zip`(10.4MB) |
+| 本地已初始化 git,remote `origin` 已配好 | `G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` |
+| 当前产物 | `DeepSeekHarness-1.4.9.zip`（约 11 MB） |
 | 安装器读取的清单 | 仓库根目录 `manifest.json` |
 
-**首次推送**(还没推过):
+**当前版本构建：**
 
 ```powershell
-cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+cd 'G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run'
 git add -A
 git commit -m "release: 大肥鱼Go启动器 1.4.9"
-git tag v1.3.9
-git push -u origin main --tags
+git tag v1.4.9
+git push origin main --tags
 # 然后把 DeepSeekHarness-1.4.9.zip 传到 v1.4.9 的 Release 资产里
 ```
 
-之后每次发版只需 `.\release.ps1` + 上面那几条 git 命令。
+正常发布统一使用父级 `release-all.ps1`，它会按正确顺序处理两个仓库。
 
 ---
 
@@ -76,7 +76,7 @@ dsh-installer                      另一个仓库 = 安装程序
 ### 省事版:一条命令
 
 ```powershell
-cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+cd 'G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run'
 .\release.ps1
 ```
 
@@ -117,7 +117,7 @@ CI 出包后,`manifest.json` 里的 sha256 仍需本地跑一次 `release.ps1` �
 ### 2. 编译
 
 ```powershell
-cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter\source'
+cd 'G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run\source'
 $env:NUGET_PACKAGES = 'G:\DeepSeek DSH\.nuget-packages'
 .\build-winui.ps1 -OutputDirectory (Join-Path $PWD 'dist-1.3.9')
 

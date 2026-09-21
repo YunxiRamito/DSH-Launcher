@@ -148,17 +148,39 @@ if ($Commit) {
     Step '提交并推送'
     Push-Location $Root
     try {
+        git fetch origin --prune
+        if ($LASTEXITCODE -ne 0) { throw 'git fetch 失败' }
+
         git add -A
-        $msg = "release: v$Version"
-        git -c user.name="YunxiRamito" -c user.email="killmasterags@gmail.com" commit -m $msg 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
-        git push origin main 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw 'git add 失败' }
+
+        git diff --cached --quiet
+        $hasStagedChanges = $LASTEXITCODE -eq 1
+        if ($LASTEXITCODE -gt 1) { throw '检查暂存区失败' }
+
+        if ($hasStagedChanges) {
+            $msg = "release: v$Version"
+            git -c user.name="YunxiRamito" -c user.email="killmasterags@gmail.com" commit -m $msg
+            if ($LASTEXITCODE -ne 0) { throw 'git commit 失败' }
+        } else {
+            Say '  没有新的文件改动，复用当前提交'
+        }
+
+        git rebase origin/main
+        if ($LASTEXITCODE -ne 0) { throw '远端 main 与本地冲突，已停止发布；请解决冲突后重试' }
+
+        git push origin main
+        if ($LASTEXITCODE -ne 0) { throw 'git push main 失败' }
 
         git tag -d $Tag 2>&1 | Out-Null
         git tag $Tag
-        git push --force origin $Tag 2>&1 | Select-Object -Last 1 | ForEach-Object { Say "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw '创建 tag 失败' }
+
+        git push --force origin $Tag
+        if ($LASTEXITCODE -ne 0) { throw 'git push tag 失败' }
         Ok "已推送 main 与 $Tag"
     } catch {
-        Warn "git 操作失败: $($_.Exception.Message)"
+        throw "git 操作失败: $($_.Exception.Message)"
     } finally {
         Pop-Location
     }

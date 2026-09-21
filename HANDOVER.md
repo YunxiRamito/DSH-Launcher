@@ -7,15 +7,14 @@
 > 当前启动器工作版本为 `1.4.9`。本文件只描述当前有效状态、操作流程、风险和下一步，
 > 不再保留 1.3.x 历史开发记录。
 
-最后更新：2026-09-21
+最后更新：2026-09-22
 
 ---
 
 ## 零、1.4.9 当前状态（接手先读这一节）
 
 > `1.4.9` 是品牌过渡版：界面与仓库先切到“大肥鱼Go / Dafeiyu-Go”，内部兼容标识不变。
-> 代码和本机构建已完成，`1.4.9` **尚未提交、打 tag 或发布**。后面的 `1.4.2`
-> 章节保留为已发布基线说明，当前有效状态以本节为准。
+> 代码、构建、tag、npm 和 GitHub Release 均已完成。后续启动器与安装器按同一版本同步发布。
 
 ### 已经做完并验证过的
 
@@ -35,16 +34,15 @@
 | 插件页 UI | 三处分页（官方推荐/在线插件/本地插件）、每页 9/18/36/54、搜索、分类(含"已验证")、排序、本语言优先、图标三级回退(API 图片→仓库 icon→GitHub 标记)、卡片内嵌进度按钮、详情卡片、卸载确认 |
 | 版本和日志 | `1.4.9` 已同步到 csproj、manifest、设置页和 `Constants.Version`；`CHANGELOG.md` 已写 1.4.9 |
 
-### 还没完成的收尾
+### 当前状态与剩余收尾
 
-1. 当前代码尚未提交，`v1.4.9` tag、GitHub Release、npm/npmmirror 包都还不存在。
-2. 尚未在**真实用户 profile** 上执行安装、更新和卸载；目前使用临时 DSH 根目录验证，避免污染环境。
-3. GitHub 设备码流程需要实际 OAuth App 的 Client ID 才能联调；页面支持输入 Client ID，也支持 `DSH_GITHUB_CLIENT_ID` 环境变量。
-4. `developer-roles.json` 的成员列表目前为空，只有仓库所有者 `YunxiRamito` 默认是超级管理员。
-5. `featured-plugins.json` 和 `developer-roles.json` 已写好，但必须提交到 `main` 后，已安装客户端才能从远端读取。
-6. `release.ps1` / `verify.ps1` 和最终 zip 仍未运行。
-7. 在线插件卡片底部按钮已改为两列等宽，`查看详情` 内容恢复居中；还需要在目标机器上做最后一轮视觉确认。
-8. Windows 10 真机仍需复核应用内视觉、完整更新链和退出行为。
+1. 尚未在**真实用户 profile** 上执行安装、更新和卸载；目前使用临时 DSH 根目录验证，避免污染环境。
+2. GitHub 设备码流程需要实际 OAuth App 的 Client ID 才能联调；页面支持输入 Client ID，也支持 `DSH_GITHUB_CLIENT_ID` 环境变量。
+3. `developer-roles.json` 的成员列表目前为空，只有仓库所有者 `YunxiRamito` 默认是超级管理员。
+4. 在线插件卡片底部按钮已改为两列等宽，`查看详情` 内容恢复居中；还需要在目标机器上做最后一轮视觉确认。
+5. Windows 10 真机仍需复核应用内视觉、完整更新链和退出行为。
+
+`1.4.9` 已发布到 GitHub、npm 和 npmmirror；后续升级统一使用父级 `release-all.ps1`。
 
 ### 调试手法（这次用得很多，接着用）
 
@@ -66,8 +64,8 @@
 
 | 项目 | 仓库 | 基线 | 最新 tag | 状态 |
 |------|------|------|----------|------|
-| Dafeiyu-Go Launcher | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` | `74cec49` 之后 | `v1.4.9` | 待发布 |
-| Dafeiyu-Go Setup | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Setup` | `b550288` | `v1.4.9` | 待发布 |
+| Dafeiyu-Go Launcher | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run` | `v1.4.9` | `v1.4.9` | 已发布 |
+| Dafeiyu-Go Setup | `https://github.com/YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Setup` | `v1.4.9` | `v1.4.9` | 已发布 |
 
 启动器 1.4.2：
 
@@ -94,7 +92,7 @@
 
 仓库根目录：
 
-`G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter`
+`G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run`
 
 ### 核心代码
 
@@ -248,7 +246,7 @@ DSH_HOME=<dshRoot>\.dsh
 ### 本地构建
 
 ```powershell
-cd 'G:\DeepSeek DSH\DSH Works\Project\DeepSeek Starter'
+cd 'G:\DeepSeek DSH\DSH Works\Project\Dafeiyu-Go\Dafeiyu-Go-DeepSeek-Harness-Click-To-Run'
 .\release.ps1
 ```
 
@@ -416,9 +414,9 @@ pnpm 定位应参考启动器 npm 定位策略：
 
 ## 九、接手第一步
 
-1. 读本文件、`RELEASE.md`、`CHANGELOG.md` 的 1.4.2。
+1. 读父级 `Dafeiyu-Go\HANDOVER.md`、本文件、`TRANSITION.md` 和 `CHANGELOG.md` 的 1.4.9。
 2. 修改设置 UI 前读 `SettingsWindow.xaml`、`SettingsWindow.xaml.cs`、`SettingsWindowHost.cs`。
 3. 修改更新前读 `UpdateSupport.cs`、`DshUpdateService.cs`、`UpdateUiSnapshot.cs`。
 4. 修改主题、圆角和图标前读 `LauncherAppearance.cs`、`CornerRadiusHelper.cs`。
 5. 修改路径和卸载前读 `InstallerRegistration.cs` 和安装器仓库的 `ConfigStore.cs`。
-6. 做插件商店方案 B 时，从 `DshProfileService` 和 `PackageManagerRunner` 开始。
+6. 后续版本必须通过父级 `set-version.ps1` 和 `release-all.ps1` 同步启动器与安装器。

@@ -18,6 +18,7 @@ param(
     [string]$Repository = 'YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run',
     [string]$OutputRoot,
     [switch]$NoBuild,
+    [switch]$NoManifest,
     [switch]$KeepDist
 )
 
@@ -165,31 +166,36 @@ $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
 Ok "SHA256: $hash"
 
 # ---------------------------------------------------------------- manifest
-Say ''
-Say '[5/5] 生成 manifest.json'
-$assetUrl = "https://github.com/$Repository/releases/download/v$version/$zipName"
+if (-not $NoManifest) {
+    Say ''
+    Say '[5/5] 生成 manifest.json'
+    $assetUrl = "https://github.com/$Repository/releases/download/v$version/$zipName"
 
-$manifest = [ordered]@{
-    version      = $version
-    sha256       = $hash
-    subDirectory = ''
-    assets       = [ordered]@{
-        github  = $assetUrl
-        mirrors = @()
+    $manifest = [ordered]@{
+        version      = $version
+        sha256       = $hash
+        subDirectory = ''
+        assets       = [ordered]@{
+            github  = $assetUrl
+            mirrors = @()
+        }
+        notes        = Get-ReleaseNotes $version
+        releasedAt   = (Get-Date).ToString('s')
     }
-    notes        = Get-ReleaseNotes $version
-    releasedAt   = (Get-Date).ToString('s')
+
+    $json = $manifest | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText($ManifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Ok "已写入: $ManifestPath"
+
+    # 清单也在 jsDelivr 上给国内加速,而 jsDelivr 对固定路径有约 12 小时缓存。
+    # 再写一份带版本号的路径,URL 里带上版本号就永远是新的,不受缓存影响。
+    $versionedManifest = Join-Path $PSScriptRoot ("manifest-" + $version + ".json")
+    [System.IO.File]::WriteAllText($versionedManifest, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Ok "带版本号副本: manifest-$version.json(给 jsDelivr 绕缓存用)"
+} else {
+    Say ''
+    Say '[5/5] 跳过 manifest.json（构建验证模式）'
 }
-
-$json = $manifest | ConvertTo-Json -Depth 6
-[System.IO.File]::WriteAllText($ManifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
-Ok "已写入: $ManifestPath"
-
-# 清单也在 jsDelivr 上给国内加速,而 jsDelivr 对固定路径有约 12 小时缓存。
-# 再写一份带版本号的路径,URL 里带上版本号就永远是新的,不受缓存影响。
-$versionedManifest = Join-Path $PSScriptRoot ("manifest-" + $version + ".json")
-[System.IO.File]::WriteAllText($versionedManifest, $json, (New-Object System.Text.UTF8Encoding($false)))
-Ok "带版本号副本: manifest-$version.json(给 jsDelivr 绕缓存用)"
 
 Say ''
 Say '----------------------------------------'
