@@ -27,6 +27,10 @@ jobs:
   build:
     runs-on: windows-latest
 
+    env:
+      # 配好 SignPath 仓库变量才走签名;没配就出未签名包,而不是让 tag 构建直接失败。
+      SIGNING_ENABLED: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG != '' }}
+
     steps:
       - name: 检出
         uses: actions/checkout@v7
@@ -53,7 +57,7 @@ jobs:
           "zip=DeepSeekHarness-$projectVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: 校验 SignPath 配置
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_ENABLED == 'true'
         shell: pwsh
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -105,7 +109,7 @@ jobs:
           Compress-Archive -Path 'source\dist-release\*' -DestinationPath '${{ steps.meta.outputs.zip }}' -CompressionLevel Optimal
 
       - name: 上传未签名 ZIP 给 SignPath
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_ENABLED == 'true'
         id: upload_unsigned
         uses: actions/upload-artifact@v7
         with:
@@ -116,7 +120,7 @@ jobs:
           retention-days: 1
 
       - name: SignPath 深度签名
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_ENABLED == 'true'
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -135,8 +139,8 @@ jobs:
         id: pack
         shell: pwsh
         run: |
-          $isTagBuild = '${{ github.ref }}' -like 'refs/tags/v*'
-          $zip = if ($isTagBuild) {
+          $signedBuild = ('${{ github.ref }}' -like 'refs/tags/v*') -and ('${{ env.SIGNING_ENABLED }}' -eq 'true')
+          $zip = if ($signedBuild) {
             Join-Path 'signed' '${{ steps.meta.outputs.zip }}'
           } else {
             '${{ steps.meta.outputs.zip }}'
@@ -146,7 +150,7 @@ jobs:
             throw "找不到待发布 ZIP: $zip"
           }
 
-          if ($isTagBuild) {
+          if ($signedBuild) {
             $verifyDir = 'signature-verify'
             Remove-Item $verifyDir -Recurse -Force -ErrorAction SilentlyContinue
             Expand-Archive -LiteralPath $zip -DestinationPath $verifyDir -Force
@@ -174,10 +178,10 @@ jobs:
           Write-Host "ZIP: $zip"
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "signed=$($isTagBuild.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "signed=$($signedBuild.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: 存未签名构建产物(手动试跑)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - name: 存未签名构建产物(手动试跑 / 未配置签名)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || env.SIGNING_ENABLED != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: Dafeiyu-Go-Launcher-Unsigned-${{ steps.meta.outputs.version }}
@@ -185,7 +189,7 @@ jobs:
           if-no-files-found: error
 
       - name: 存已签名构建产物
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_ENABLED == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: Dafeiyu-Go-Launcher-Signed-${{ steps.meta.outputs.version }}
@@ -243,12 +247,12 @@ jobs:
           files: ${{ steps.pack.outputs.zip }}
           generate_release_notes: true
           body: |
-            大肥鱼Go启动器已签名自动构建产物 `${{ steps.meta.outputs.zip }}`
+            大肥鱼Go启动器${{ env.SIGNING_ENABLED == 'true' && '已签名' || '未签名' }}自动构建产物 `${{ steps.meta.outputs.zip }}`
 
             SHA256: `${{ steps.pack.outputs.sha256 }}`
 
             Free code signing provided by [SignPath.io](https://about.signpath.io),
-            certificate by [SignPath Foundation](https://signpath.org) —— Windows 发布者: SignPath Foundation
+            certificate by [SignPath Foundation](https://signpath.org) —— ${{ env.SIGNING_ENABLED == 'true' && 'Windows 发布者: SignPath Foundation' || '本版尚未签名(等待 SignPath Foundation 审批),首次运行会有 SmartScreen 提示' }}
 
             同一份包也发到了 npm(`@yunxiramito/dsh-launcher@${{ steps.meta.outputs.version }}`),
             安装器在加速线路下优先从 npmmirror 取 —— 国内 10 MB 大约 1.4 秒。
