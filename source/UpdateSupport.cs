@@ -552,6 +552,11 @@ namespace DeepSeekHarnessLauncher
                 core = left.Patch.CompareTo(right.Patch);
             }
 
+            if (core == 0)
+            {
+                core = left.Revision.CompareTo(right.Revision);
+            }
+
             if (core != 0)
             {
                 return core;
@@ -625,7 +630,7 @@ namespace DeepSeekHarnessLauncher
             }
 
             string[] coreParts = value.Split('.');
-            if (coreParts.Length < 2 || coreParts.Length > 3)
+            if (coreParts.Length < 2 || coreParts.Length > 4)
             {
                 return false;
             }
@@ -633,6 +638,7 @@ namespace DeepSeekHarnessLauncher
             int major;
             int minor;
             int patch = 0;
+            int revision = 0;
             if (!Int32.TryParse(
                     coreParts[0],
                     NumberStyles.None,
@@ -648,12 +654,23 @@ namespace DeepSeekHarnessLauncher
                         coreParts[2],
                         NumberStyles.None,
                         CultureInfo.InvariantCulture,
-                        out patch)))
+                        out patch))
+                || (coreParts.Length == 4
+                    && (!Int32.TryParse(
+                            coreParts[2],
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out patch)
+                        || !Int32.TryParse(
+                            coreParts[3],
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out revision))))
             {
                 return false;
             }
 
-            if (major < 0 || minor < 0 || patch < 0)
+            if (major < 0 || minor < 0 || patch < 0 || revision < 0)
             {
                 return false;
             }
@@ -663,6 +680,7 @@ namespace DeepSeekHarnessLauncher
                 Major = major,
                 Minor = minor,
                 Patch = patch,
+                Revision = revision,
                 PreRelease = preRelease
             };
             return true;
@@ -723,6 +741,7 @@ namespace DeepSeekHarnessLauncher
             public int Major { get; set; }
             public int Minor { get; set; }
             public int Patch { get; set; }
+            public int Revision { get; set; }
             public string PreRelease { get; set; }
         }
 

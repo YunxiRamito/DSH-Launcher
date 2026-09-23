@@ -12,6 +12,7 @@ namespace DeepSeekHarnessLauncher
         public string SilentStart { get; set; } = "StartupOnly";
 
         public string Theme { get; set; } = "System";
+        public string WindowStyle { get; set; } = "System";
         public string AccentSource { get; set; } = "System";
         public string AccentColor { get; set; } = "#0A84FF";
         public string Material { get; set; } = "Mica";

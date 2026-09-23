@@ -90,7 +90,7 @@ namespace DeepSeekHarnessLauncher
                             ? "下载中 · "
                                 + FormatBytes(received) + " / " + FormatBytes(total)
                             : "下载中 · " + FormatBytes(received),
-                        2 + fraction * 48);
+                        2 + fraction * 68);
                 },
                 log);
             if (downloadError != null)
@@ -99,7 +99,8 @@ namespace DeepSeekHarnessLauncher
                 return result;
             }
 
-            Report(progress, "安装中 · 正在解压", 55);
+            Report(progress, "下载完成 · 正在安装", 70);
+            Report(progress, "安装中 · 正在解压", 74);
             string extractError = ExtractTarGz(archive, target);
             TryDelete(archive);
             if (extractError != null)
@@ -131,7 +132,7 @@ namespace DeepSeekHarnessLauncher
                 key = spec.FolderName;
             }
 
-            Report(progress, "安装中 · 写入 profile", 62);
+            Report(progress, "安装中 · 写入 profile", 78);
             string profileDirectory = DshProfileService.ResolveProfileDirectory(
                 settings.DshRoot);
             string relative;
@@ -174,7 +175,7 @@ namespace DeepSeekHarnessLauncher
 
             if (hasOwnDependencies)
             {
-                Report(progress, "安装中 · 插件依赖", 68);
+                Report(progress, "安装中 · 插件依赖", 82);
                 PackageManagerRunner.Run(
                     pnpm,
                     target,
@@ -183,7 +184,7 @@ namespace DeepSeekHarnessLauncher
                     log);
             }
 
-            Report(progress, "安装中 · 部署到 profile", 78);
+            Report(progress, "安装中 · 部署到 profile", 88);
             PackageManagerRunner.RunResult run = PackageManagerRunner.Run(
                 pnpm,
                 profileDirectory,
@@ -257,7 +258,7 @@ namespace DeepSeekHarnessLauncher
                 return result;
             }
 
-            Report(progress, "安装中 · 正在获取 npm 包", 15);
+            Report(progress, "安装中 · 正在获取 npm 包", 5);
             PackageManagerRunner.RunResult run = PackageManagerRunner.Run(
                 pnpm,
                 profileDirectory,
@@ -273,6 +274,8 @@ namespace DeepSeekHarnessLauncher
                     : "pnpm 启动失败。";
                 return result;
             }
+
+            Report(progress, "下载完成 · 正在安装", 70);
 
             string packageDirectory = Path.Combine(
                 profileDirectory,
@@ -307,6 +310,8 @@ namespace DeepSeekHarnessLauncher
                 result.Error = profileError;
                 return result;
             }
+
+            Report(progress, "安装中 · 写入 profile", 88);
 
             PluginInstallStore.Upsert(new PluginInstallRecord
             {

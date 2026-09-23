@@ -42,7 +42,7 @@ namespace DeepSeekHarnessLauncher
     {
         public const string Title = "大肥鱼Go";
         public const string EnglishTitle = "Dafeiyu-Go";
-        public const string Version = "1.4.9";
+        public const string Version = "1.4.9.1";
         public const string Repository = "YunxiRamito/Dafeiyu-Go-DeepSeek-Harness-Click-To-Run";
         public const string LegacyRepository = "YunxiRamito/DSH-Launcher";
         public const string UserAgent = "Dafeiyu-Go/" + Version;
@@ -1602,8 +1602,30 @@ namespace DeepSeekHarnessLauncher
                     String.Empty);
                 UpdateWindow(
                     "正在更新启动器到 v" + manifest.Version,
-                    "准备下载…",
+                    "步骤 1/2 · 更新安装器和卸载器",
                     0);
+
+                string installerUpdateError;
+                if (!PrepareInstallerCompanion(
+                    manifest.Version,
+                    out installerUpdateError))
+                {
+                    UpdateLauncherUi(
+                        UpdateUiActivity.Failed,
+                        manifest.Version,
+                        "安装器更新失败",
+                        0,
+                        false,
+                        installerUpdateError);
+                    UpdateWindow(
+                        "更新失败",
+                        installerUpdateError,
+                        0);
+                    WriteLog("安装器更新失败: " + installerUpdateError);
+                    Thread.Sleep(4000);
+                    FinishUpdateWindow();
+                    return;
+                }
 
                 string staging;
                 string stageError;
@@ -1612,19 +1634,25 @@ namespace DeepSeekHarnessLauncher
                     _launcherDirectory,
                     delegate(long received, long total)
                     {
-                        if (total <= 0 || _updateWindow == null)
+                        if (total <= 0)
                         {
                             return;
                         }
 
-                        double percent = received * 100.0 / total;
-                        UpdateWindow(
-                            null,
-                            DescribeTransfer(
-                                received,
-                                total,
-                                _updateDownloadStartedUtc),
-                            percent);
+                        double percent = 35.0
+                            + received * 65.0 / total;
+                        string detail = "步骤 2/2 · 启动器 "
+                            + FormatBytes(received)
+                            + "/"
+                            + FormatBytes(total);
+                        UpdateLauncherUi(
+                            UpdateUiActivity.Installing,
+                            manifest.Version,
+                            "启动器下载中",
+                            percent,
+                            false,
+                            detail);
+                        UpdateWindow(null, detail, percent);
                     },
                     out stageError);
 
@@ -1972,8 +2000,32 @@ namespace DeepSeekHarnessLauncher
             _updateDownloadStartedUtc = DateTime.UtcNow;
             InvokeOnUi(delegate()
             {
-                ShowNotification("正在下载 v" + _availableUpdateVersion + "…", false);
+                ShowNotification("正在更新到 v" + _availableUpdateVersion + "…", false);
             });
+
+            string installerUpdateError;
+            if (!PrepareInstallerCompanion(
+                _pendingManifest.Version,
+                out installerUpdateError))
+            {
+                _updateInProgress = false;
+                UpdateLauncherUi(
+                    UpdateUiActivity.Failed,
+                    _availableUpdateVersion,
+                    "安装器更新失败",
+                    0,
+                    false,
+                    installerUpdateError);
+                WriteLog("安装器更新失败: " + installerUpdateError);
+                InvokeOnUi(delegate()
+                {
+                    _trayIcon.UpdateTip(Constants.Title + " 正在运行");
+                    ShowNotification(
+                        "更新失败:" + installerUpdateError,
+                        true);
+                });
+                return;
+            }
 
             staging = UpdateSupport.PrepareStaging(
                 _pendingManifest,
@@ -1985,11 +2037,11 @@ namespace DeepSeekHarnessLauncher
                         return;
                     }
 
-                    int percent = (int)(received * 100 / total);
+                    int percent = (int)(35 + received * 65 / total);
                     UpdateLauncherUi(
                         UpdateUiActivity.Installing,
                         _availableUpdateVersion,
-                        "下载中",
+                        "启动器下载中",
                         percent,
                         false,
                         DescribeTransfer(
@@ -2002,10 +2054,10 @@ namespace DeepSeekHarnessLauncher
                     {
                         UpdateWindow(
                             null,
-                            DescribeTransfer(
-                                received,
-                                total,
-                                _updateDownloadStartedUtc),
+                            "步骤 2/2 · 启动器 "
+                                + FormatBytes(received)
+                                + "/"
+                                + FormatBytes(total),
                             percent);
                     }
                 },
@@ -2050,6 +2102,79 @@ namespace DeepSeekHarnessLauncher
             UpdateSupport.ApplyUpdateAndExit(staging, _launcherDirectory);
             _launcherUpdateRestartPending = true;
             InvokeOnUi(ExitApplication);
+        }
+
+        private bool PrepareInstallerCompanion(
+            string version,
+            out string error)
+        {
+            error = null;
+            UpdateLauncherUi(
+                UpdateUiActivity.Installing,
+                version,
+                "安装器检查中",
+                -1,
+                true,
+                String.Empty);
+            UpdateWindow(
+                "正在更新 Dafeiyu-Go v" + version,
+                "步骤 1/2 · 获取安装器",
+                -1);
+
+            InstallerUpdatePackage package =
+                InstallerUpdateService.FetchLatestPackage(
+                    _settings,
+                    version,
+                    out error);
+            if (package == null)
+            {
+                return false;
+            }
+
+            bool applied = InstallerUpdateService.PrepareAndApply(
+                package,
+                _root,
+                delegate(long received, long total)
+                {
+                    bool indeterminate = total <= 0;
+                    double percent = indeterminate
+                        ? -1
+                        : received * 35.0 / total;
+                    string detail = indeterminate
+                        ? "步骤 1/2 · 安装器下载中"
+                        : "步骤 1/2 · 安装器 "
+                            + FormatBytes(received)
+                            + "/"
+                            + FormatBytes(total);
+                    UpdateLauncherUi(
+                        UpdateUiActivity.Installing,
+                        version,
+                        "安装器下载中",
+                        percent,
+                        indeterminate,
+                        detail);
+                    UpdateWindow(null, detail, percent);
+                },
+                out error);
+            if (!applied)
+            {
+                return false;
+            }
+
+            UpdateLauncherUi(
+                UpdateUiActivity.Installing,
+                version,
+                "安装器已更新",
+                35,
+                false,
+                "安装器和卸载器已替换");
+            UpdateWindow(
+                null,
+                "步骤 1/2 · 安装器和卸载器已更新",
+                35);
+            InstallerRegistration.SynchronizeInstallerVersion(version);
+            WriteLog("安装器与卸载器已更新到 v" + version);
+            return true;
         }
 
         private void BalanceItemClick()
@@ -2314,20 +2439,35 @@ namespace DeepSeekHarnessLauncher
                 UpdateDshUi(
                     UpdateUiActivity.Installing,
                     latest,
-                    "部署中",
-                    -1,
-                    true,
+                    "准备安装",
+                    0,
+                    false,
                     String.Empty);
                 UpdateWindow(
                     "正在更新 DSH v" + latest,
                     "安装中 / 请不要关闭计算机",
-                    -1);
+                    0);
                 StopService();
                 string installError;
                 bool installedOk = DshUpdateService.InstallPackage(
                     _settings.DshRoot,
                     _settings.NodePath,
                     packagePath,
+                    delegate(string text, double percent)
+                    {
+                        string detail = "安装中 / 请不要关闭计算机"
+                            + (String.IsNullOrWhiteSpace(text)
+                                ? String.Empty
+                                : " · " + text);
+                        UpdateDshUi(
+                            UpdateUiActivity.Installing,
+                            latest,
+                            text,
+                            percent,
+                            false,
+                            text);
+                        UpdateWindow(null, detail, percent);
+                    },
                     out installError);
                 if (!installedOk)
                 {
@@ -2884,6 +3024,8 @@ namespace DeepSeekHarnessLauncher
 
         private void ApplyAppearanceFromSettings()
         {
+            CornerRadiusHelper.SetWindowStyle(_settings.WindowStyle);
+
             ElementTheme theme = _settings.Theme switch
             {
                 "Light" => ElementTheme.Light,

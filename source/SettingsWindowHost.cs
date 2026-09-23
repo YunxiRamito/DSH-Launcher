@@ -4,6 +4,8 @@ namespace DeepSeekHarnessLauncher
 {
     internal sealed class SettingsWindowHost
     {
+        public bool IsPreview { get; set; }
+
         public LauncherSettings Settings { get; set; }
 
         public Func<string> GetServiceStatus { get; set; } =

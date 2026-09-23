@@ -6,6 +6,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace DeepSeekHarnessLauncher
 {
@@ -24,6 +25,7 @@ namespace DeepSeekHarnessLauncher
         private const string PackageName = "@deepseek-ai/dsh";
         private const int DownloadTimeoutMs = 600000;
         private const int DownloadBufferSize = 81920;
+        private const double ExpectedDshSizeMb = 230.0;
         private const string AcceleratedRegistry =
             "https://registry.npmmirror.com/@deepseek-ai/dsh";
         private const string OfficialRegistry =
@@ -389,6 +391,21 @@ namespace DeepSeekHarnessLauncher
             string version,
             out string error)
         {
+            return InstallVersion(
+                dshRoot,
+                nodePath,
+                version,
+                null,
+                out error);
+        }
+
+        internal static bool InstallVersion(
+            string dshRoot,
+            string nodePath,
+            string version,
+            Action<string, double> progress,
+            out string error)
+        {
             if (String.IsNullOrWhiteSpace(version))
             {
                 error = "DSH 更新参数不完整。";
@@ -399,6 +416,7 @@ namespace DeepSeekHarnessLauncher
                 dshRoot,
                 nodePath,
                 PackageName + "@" + version,
+                progress,
                 out error);
         }
 
@@ -406,6 +424,21 @@ namespace DeepSeekHarnessLauncher
             string dshRoot,
             string nodePath,
             string packagePath,
+            out string error)
+        {
+            return InstallPackage(
+                dshRoot,
+                nodePath,
+                packagePath,
+                null,
+                out error);
+        }
+
+        internal static bool InstallPackage(
+            string dshRoot,
+            string nodePath,
+            string packagePath,
+            Action<string, double> progress,
             out string error)
         {
             if (String.IsNullOrWhiteSpace(packagePath)
@@ -419,6 +452,7 @@ namespace DeepSeekHarnessLauncher
                 dshRoot,
                 nodePath,
                 packagePath,
+                progress,
                 out error);
         }
 
@@ -426,6 +460,7 @@ namespace DeepSeekHarnessLauncher
             string dshRoot,
             string nodePath,
             string packageSpec,
+            Action<string, double> progress,
             out string error)
         {
             error = null;
@@ -448,7 +483,7 @@ namespace DeepSeekHarnessLauncher
             string installArguments = " install "
                 + Quote(packageSpec)
                 + " --prefix " + Quote(dshRoot)
-                + " --no-audit --no-fund";
+                + " --no-audit --no-fund --progress=true --loglevel=http";
             if (!String.IsNullOrWhiteSpace(npmCli))
             {
                 fileName = nodePath;
@@ -490,9 +525,45 @@ namespace DeepSeekHarnessLauncher
                 SetPath(startInfo, nodeDirectory, npmDirectory);
 
                 using (Process process = Process.Start(startInfo))
+                using (NpmInstallProgress tracker =
+                    new NpmInstallProgress(dshRoot, progress))
                 {
-                    string standardOutput = process.StandardOutput.ReadToEnd();
-                    string standardError = process.StandardError.ReadToEnd();
+                    StringBuilder standardOutput = new StringBuilder();
+                    StringBuilder standardError = new StringBuilder();
+                    object outputLock = new object();
+                    process.OutputDataReceived += delegate(
+                        object sender,
+                        DataReceivedEventArgs args)
+                    {
+                        if (args.Data == null)
+                        {
+                            return;
+                        }
+
+                        lock (outputLock)
+                        {
+                            standardOutput.AppendLine(args.Data);
+                        }
+
+                        tracker.OnLine(args.Data);
+                    };
+                    process.ErrorDataReceived += delegate(
+                        object sender,
+                        DataReceivedEventArgs args)
+                    {
+                        if (args.Data == null)
+                        {
+                            return;
+                        }
+
+                        lock (outputLock)
+                        {
+                            standardError.AppendLine(args.Data);
+                        }
+                    };
+
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
                     if (!process.WaitForExit(600000))
                     {
                         try
@@ -507,17 +578,29 @@ namespace DeepSeekHarnessLauncher
                         return false;
                     }
 
+                    process.WaitForExit();
+
+                    string stdoutText;
+                    string stderrText;
+                    lock (outputLock)
+                    {
+                        stdoutText = standardOutput.ToString();
+                        stderrText = standardError.ToString();
+                    }
+
                     if (process.ExitCode != 0)
                     {
                         error = "DSH 更新安装失败（退出码 "
                             + process.ExitCode.ToString(
                                 CultureInfo.InvariantCulture)
                             + "）："
-                            + (String.IsNullOrWhiteSpace(standardError)
-                                ? standardOutput
-                                : standardError);
+                            + (String.IsNullOrWhiteSpace(stderrText)
+                                ? stdoutText
+                                : stderrText);
                         return false;
                     }
+
+                    tracker.Complete();
                 }
 
                 return true;
@@ -526,6 +609,178 @@ namespace DeepSeekHarnessLauncher
             {
                 error = "DSH 更新安装失败：" + exception.Message;
                 return false;
+            }
+        }
+
+        private sealed class NpmInstallProgress : IDisposable
+        {
+            private readonly Action<string, double> _report;
+            private readonly string _modulesDirectory;
+            private readonly DateTime _startedUtc = DateTime.UtcNow;
+            private readonly object _gate = new object();
+            private readonly Timer _timer;
+            private double _lastPercent;
+            private string _lastDetail = String.Empty;
+            private volatile bool _completed;
+
+            public NpmInstallProgress(
+                string dshRoot,
+                Action<string, double> report)
+            {
+                _report = report;
+                _modulesDirectory = Path.Combine(
+                    dshRoot ?? String.Empty,
+                    "node_modules");
+                if (_report != null)
+                {
+                    _timer = new Timer(
+                        delegate { Publish(false); },
+                        null,
+                        500,
+                        750);
+                    Publish(true);
+                }
+            }
+
+            public void OnLine(string line)
+            {
+                if (String.IsNullOrWhiteSpace(line) || _completed)
+                {
+                    return;
+                }
+
+                if (line.IndexOf(
+                        "npm info ok",
+                        StringComparison.OrdinalIgnoreCase) >= 0
+                    || line.IndexOf(
+                        "added ",
+                        StringComparison.OrdinalIgnoreCase) >= 0
+                        && line.IndexOf(
+                            " packages",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Publish(true, "正在完成安装", 97);
+                    return;
+                }
+
+                Publish(false);
+            }
+
+            public void Complete()
+            {
+                Publish(true, "安装完成", 100);
+            }
+
+            public void Dispose()
+            {
+                if (_timer != null)
+                {
+                    _timer.Dispose();
+                }
+            }
+
+            private void Publish(
+                bool force,
+                string detailOverride = null,
+                double percentOverride = -1)
+            {
+                if (_report == null || _completed)
+                {
+                    return;
+                }
+
+                double elapsedSeconds =
+                    Math.Max(0.0, (DateTime.UtcNow - _startedUtc).TotalSeconds);
+                double sizeMb = DirectorySizeMb(_modulesDirectory);
+                double sizeProgress =
+                    5.0 + Math.Min(0.95, sizeMb / ExpectedDshSizeMb) * 90.0;
+                double timeProgress =
+                    5.0 + 90.0 * (1.0 - Math.Exp(-elapsedSeconds / 90.0));
+                double percent = percentOverride >= 0
+                    ? percentOverride
+                    : Math.Max(sizeProgress, timeProgress);
+                if (percent > 99.0 && percentOverride < 0)
+                {
+                    percent = 99.0;
+                }
+
+                string detail = detailOverride;
+                if (String.IsNullOrWhiteSpace(detail))
+                {
+                    detail = sizeMb < 0.5
+                        ? "正在初始化 npm，可能需要一些时间"
+                        : "正在部署 DSH 核心 "
+                            + sizeMb.ToString(
+                                "0.0",
+                                CultureInfo.InvariantCulture)
+                            + " / "
+                            + ExpectedDshSizeMb.ToString(
+                                "0",
+                                CultureInfo.InvariantCulture)
+                            + " MB";
+                }
+
+                lock (_gate)
+                {
+                    if (_completed)
+                    {
+                        return;
+                    }
+
+                    if (percentOverride >= 100)
+                    {
+                        _completed = true;
+                    }
+
+                    if (!force
+                        && percent - _lastPercent < 0.5
+                        && String.Equals(
+                            detail,
+                            _lastDetail,
+                            StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+
+                    _lastPercent = percent;
+                    _lastDetail = detail;
+                }
+
+                _report(detail, percent);
+            }
+
+            private static double DirectorySizeMb(string directory)
+            {
+                if (String.IsNullOrWhiteSpace(directory)
+                    || !Directory.Exists(directory))
+                {
+                    return 0.0;
+                }
+
+                try
+                {
+                    long bytes = 0;
+                    string[] files = Directory.GetFiles(
+                        directory,
+                        "*",
+                        SearchOption.AllDirectories);
+                    for (int index = 0; index < files.Length; index++)
+                    {
+                        try
+                        {
+                            bytes += new FileInfo(files[index]).Length;
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    return bytes / 1048576.0;
+                }
+                catch
+                {
+                    return 0.0;
+                }
             }
         }
 

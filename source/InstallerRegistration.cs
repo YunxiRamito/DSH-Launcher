@@ -28,6 +28,17 @@ namespace DeepSeekHarnessLauncher
             UpdateUninstallRegistry(dshRoot);
         }
 
+        internal static void SynchronizeInstallerVersion(string version)
+        {
+            if (String.IsNullOrWhiteSpace(version))
+            {
+                return;
+            }
+
+            UpdateInstallerStateVersion(version);
+            UpdateUninstallRegistryVersion(version);
+        }
+
         private static void UpdateInstallerState(string dshRoot)
         {
             try
@@ -75,6 +86,83 @@ namespace DeepSeekHarnessLauncher
             }
 
             TryUpdateRegistry(Registry.CurrentUser, dshRoot);
+        }
+
+        private static void UpdateInstallerStateVersion(string version)
+        {
+            try
+            {
+                string path = Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekHarness",
+                    "installer-state.json");
+                if (!File.Exists(path))
+                {
+                    return;
+                }
+
+                JsonNode node = JsonNode.Parse(
+                    File.ReadAllText(path, Encoding.UTF8));
+                if (node is not JsonObject root)
+                {
+                    return;
+                }
+
+                root["InstallerVersion"] = version;
+                string temporaryPath = path + ".tmp";
+                File.WriteAllText(
+                    temporaryPath,
+                    root.ToJsonString(new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    }),
+                    new UTF8Encoding(false));
+                File.Replace(temporaryPath, path, null);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void UpdateUninstallRegistryVersion(string version)
+        {
+            if (TryUpdateRegistryVersion(
+                Registry.LocalMachine,
+                version))
+            {
+                return;
+            }
+
+            TryUpdateRegistryVersion(Registry.CurrentUser, version);
+        }
+
+        private static bool TryUpdateRegistryVersion(
+            RegistryKey root,
+            string version)
+        {
+            try
+            {
+                using (RegistryKey key = root.OpenSubKey(
+                    RegistryUninstallKey,
+                    true))
+                {
+                    if (key == null)
+                    {
+                        return false;
+                    }
+
+                    key.SetValue(
+                        "DisplayVersion",
+                        version,
+                        RegistryValueKind.String);
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool TryUpdateRegistry(

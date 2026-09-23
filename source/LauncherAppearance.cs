@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI.ViewManagement;
 using WinRT;
+using WinRT.Interop;
 
 namespace DeepSeekHarnessLauncher
 {
@@ -129,6 +130,27 @@ namespace DeepSeekHarnessLauncher
             }
         }
 
+        internal static void ApplyWindowFrames()
+        {
+            for (int index = 0; index < Registrations.Count; index++)
+            {
+                Window window = Registrations[index].Window;
+                if (window == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    CornerRadiusHelper.ApplyWindowFrame(
+                        WindowNative.GetWindowHandle(window));
+                }
+                catch
+                {
+                }
+            }
+        }
+
         private static WindowRegistration Find(Window window)
         {
             for (int index = 0; index < Registrations.Count; index++)
@@ -158,6 +180,15 @@ namespace DeepSeekHarnessLauncher
             if (registration.Surface != null)
             {
                 registration.Surface.RequestedTheme = _theme;
+            }
+
+            try
+            {
+                CornerRadiusHelper.ApplyWindowFrame(
+                    WindowNative.GetWindowHandle(registration.Window));
+            }
+            catch
+            {
             }
 
             DisposeControllers(registration);

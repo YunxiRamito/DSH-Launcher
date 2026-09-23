@@ -86,6 +86,7 @@ namespace DeepSeekHarnessLauncher
                 new PointerEventHandler(SettingsRoot_PointerPressed),
                 true);
             LoadSettingsIntoControls();
+            ApplyWindowStyle();
             ApplyTheme();
             ApplyAdaptiveIcons();
             ApplyAccent();
@@ -161,6 +162,7 @@ namespace DeepSeekHarnessLauncher
             LauncherSettingsStore.Save(settings);
             return new SettingsWindowHost
             {
+                IsPreview = true,
                 Settings = settings,
                 GetServiceStatus = delegate
                 {
@@ -191,7 +193,7 @@ namespace DeepSeekHarnessLauncher
 
         private void ApplyAdaptiveIcons()
         {
-            string folder = CornerRadiusHelper.IsWindows11
+            string folder = CornerRadiusHelper.UsesWindows11Style
                 ? "SettingsNavIcons"
                 : (SettingsRoot.ActualTheme == ElementTheme.Dark
                     ? "SettingsNavIconsWin10Dark"
@@ -239,6 +241,7 @@ namespace DeepSeekHarnessLauncher
             DefaultPortRadio.IsChecked = _settings.PortMode == "Default";
             SelectTaggedItem(SilentStartComboBox, _settings.SilentStart);
             SelectTaggedItem(ThemeComboBox, _settings.Theme);
+            SelectTaggedItem(WindowStyleComboBox, _settings.WindowStyle);
             SelectTaggedItem(AccentSourceComboBox, _settings.AccentSource);
             AccentColorPicker.Color = ParseColor(_settings.AccentColor);
             AccentColorSwatch.Background =
@@ -312,6 +315,10 @@ namespace DeepSeekHarnessLauncher
             PluginSourceComboBox.SelectionChanged += SettingComboBox_SelectionChanged;
             UpdateIntervalComboBox.SelectionChanged += SettingComboBox_SelectionChanged;
             FixedPortBox.ValueChanged += FixedPortBox_ValueChanged;
+            // 不能在 XAML 里绑定。RadioButtons 在初始化选择时会先触发一次
+            // SelectionChanged，此时 SelectedItem 可能还是 null，会把已保存的
+            // 代理模式覆盖成 None。等 LoadSettingsIntoControls 完成后再接事件。
+            ProxyModeSelector.SelectionChanged += ProxyModeSelector_SelectionChanged;
             ProxyProtocolSelector.SelectionChanged += ProxySetting_SelectionChanged;
             ProxyHostBox.TextChanged += ProxyHostBox_TextChanged;
             ProxyPortBox.ValueChanged += ProxyPortBox_ValueChanged;
@@ -819,10 +826,22 @@ namespace DeepSeekHarnessLauncher
 
             RadioButton mode = ProxyModeSelector.SelectedItem as RadioButton;
             RadioButton protocol = ProxyProtocolSelector.SelectedItem as RadioButton;
-            _settings.ProxyMode = mode == null ? "None" : GetTag(mode);
-            _settings.ProxyProtocol = protocol == null
-                ? "Http"
-                : GetTag(protocol);
+            string proxyMode = mode == null ? null : GetTag(mode);
+            string proxyProtocol = protocol == null ? null : GetTag(protocol);
+
+            // 控件初始化或切换过程中可能短暂没有 SelectedItem。
+            // 这时必须保留原值，不能把“还没选好”解释成“用户选择直连”。
+            if (String.IsNullOrWhiteSpace(proxyMode))
+            {
+                _host.Log("Proxy settings save skipped: proxy mode is not ready.");
+                return;
+            }
+
+            _settings.ProxyMode = proxyMode;
+            if (!String.IsNullOrWhiteSpace(proxyProtocol))
+            {
+                _settings.ProxyProtocol = proxyProtocol;
+            }
             _settings.ProxyHost = ProxyHostBox.Text;
             _settings.ProxyPort = Double.IsNaN(ProxyPortBox.Value)
                 || ProxyPortBox.Value < 1
@@ -1225,6 +1244,14 @@ namespace DeepSeekHarnessLauncher
             for (int index = start; index < end; index++)
             {
                 cards.Add(ToOnlineCard(filtered[index]));
+            }
+
+            if (_host.IsPreview && cards.Count > 0)
+            {
+                cards[0].Busy = true;
+                cards[0].ProgressValue = 50;
+                cards[0].PrimaryEnabled = false;
+                cards[0].PrimaryAction = "安装中";
             }
 
             OnlinePluginRepeater.ItemsSource = cards;
@@ -1700,7 +1727,6 @@ namespace DeepSeekHarnessLauncher
             card.Busy = true;
             card.ProgressValue = 0;
             card.PrimaryEnabled = false;
-            card.PrimaryAction = "安装中…";
 
             PluginSpec spec = PluginSpec.Parse(card.Spec);
             string name = card.Name;
@@ -1718,7 +1744,7 @@ namespace DeepSeekHarnessLauncher
                         DispatcherQueue.TryEnqueue(delegate
                         {
                             PluginActionInfoBar.Message = text;
-                            card.PrimaryAction = DescribeProgress(text);
+                            card.PrimaryAction = PluginProgressAction(text);
                             card.ProgressValue = Math.Max(0, Math.Min(100, fraction));
                         });
                     },
@@ -1756,25 +1782,26 @@ namespace DeepSeekHarnessLauncher
             });
         }
 
-        /// <summary>按钮里放不下整句话，只取阶段词 + 百分比。</summary>
-        private static string DescribeProgress(string text)
+        private static string PluginProgressAction(string text)
         {
             if (String.IsNullOrWhiteSpace(text))
             {
-                return "安装中…";
+                return "安装中";
             }
 
-            if (text.StartsWith("下载", StringComparison.Ordinal))
+            if (text.IndexOf("下载", StringComparison.Ordinal) >= 0)
             {
-                return "下载中…";
+                return "下载中";
             }
 
-            if (text.StartsWith("安装", StringComparison.Ordinal))
+            if (text.IndexOf("安装", StringComparison.Ordinal) >= 0
+                || text.IndexOf("解压", StringComparison.Ordinal) >= 0
+                || text.IndexOf("profile", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                return "安装中…";
+                return "安装中";
             }
 
-            return text.Length > 6 ? text.Substring(0, 6) : text;
+            return "安装中";
         }
 
         // ---------------------------------------------------------------- 插件卡片动作
@@ -2862,6 +2889,27 @@ namespace DeepSeekHarnessLauncher
             };
             LauncherAppearance.SetTheme(elementTheme);
             ApplyTitleBarButtonColors();
+        }
+
+        private void WindowStyleComboBox_SelectionChanged(
+            object sender,
+            SelectionChangedEventArgs args)
+        {
+            if (_initializing)
+            {
+                return;
+            }
+
+            _settings.WindowStyle =
+                GetSelectedTag(WindowStyleComboBox, CornerRadiusHelper.DefaultWindowStyle);
+            SaveSettings();
+            ApplyWindowStyle();
+        }
+
+        private void ApplyWindowStyle()
+        {
+            CornerRadiusHelper.SetWindowStyle(_settings.WindowStyle);
+            ApplyAdaptiveIcons();
         }
 
         private void AccentSourceComboBox_SelectionChanged(

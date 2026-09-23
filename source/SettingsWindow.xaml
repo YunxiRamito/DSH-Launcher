@@ -286,30 +286,31 @@
                                     Tag="{x:Bind}"
                                     Click="ShowPluginDetail_Click"
                                     Style="{StaticResource SettingsCompactButtonStyle}" />
-                                <Button
+                                <Grid
                                     Grid.Column="1"
-                                    HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Stretch"
-                                    MinWidth="0"
-                                    Tag="{x:Bind}"
-                                    Click="InstallOnlinePlugin_Click"
-                                    IsEnabled="{x:Bind PrimaryEnabled, Mode=OneWay}"
-                                    Style="{StaticResource SettingsAccentActionButtonStyle}"
-                                    Height="32">
-                                    <Grid MinWidth="44">
-                                        <TextBlock
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind PrimaryAction, Mode=OneWay}" />
+                                    RowSpacing="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="2" />
+                                    </Grid.RowDefinitions>
+                                    <Button
+                                        Content="{x:Bind PrimaryAction, Mode=OneWay}"
+                                        HorizontalAlignment="Stretch"
+                                        MinWidth="0"
+                                        Tag="{x:Bind}"
+                                        Click="InstallOnlinePlugin_Click"
+                                        IsEnabled="{x:Bind PrimaryEnabled, Mode=OneWay}"
+                                        Style="{StaticResource SettingsAccentActionButtonStyle}"
+                                        Height="32" />
                                         <ProgressBar
+                                            Grid.Row="1"
                                             Height="2"
-                                            Margin="0,0,0,1"
+                                            HorizontalAlignment="Stretch"
                                             Maximum="100"
+                                            CornerRadius="1"
                                             Value="{x:Bind ProgressValue, Mode=OneWay}"
-                                            VerticalAlignment="Bottom"
                                             Visibility="{x:Bind BusyVisibility, Mode=OneWay}" />
-                                    </Grid>
-                                </Button>
+                                </Grid>
                             </Grid>
                         </Grid>
                     </Grid>
@@ -673,8 +674,7 @@
                                 </StackPanel>
                                 <RadioButtons
                                     x:Name="ProxyModeSelector"
-                                    SelectedIndex="0"
-                                    SelectionChanged="ProxyModeSelector_SelectionChanged">
+                                    SelectedIndex="0">
                                     <RadioButton
                                         Content="不使用代理"
                                         Tag="None" />
@@ -769,6 +769,34 @@
                                     <ComboBoxItem Content="浅色" Tag="Light" />
                                     <ComboBoxItem Content="深色" Tag="Dark" />
                                     <ComboBoxItem Content="跟随系统" Tag="System" />
+                                </ComboBox>
+                            </Grid>
+                        </Border>
+
+                        <Border Style="{StaticResource SettingsCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel
+                                    VerticalAlignment="Center"
+                                    Spacing="3">
+                                    <TextBlock
+                                        Style="{StaticResource SettingsRowTitleTextStyle}"
+                                        Text="窗口风格" />
+                                    <TextBlock
+                                        Style="{StaticResource SettingsRowDescriptionTextStyle}"
+                                        Text="Windows 10 使用直角扁平风格，Windows 11 使用圆角 Fluent 风格。" />
+                                </StackPanel>
+                                <ComboBox
+                                    x:Name="WindowStyleComboBox"
+                                    Grid.Column="1"
+                                    SelectedIndex="1"
+                                    SelectionChanged="WindowStyleComboBox_SelectionChanged"
+                                    MinWidth="180" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="Windows 10" Tag="Windows10" />
+                                    <ComboBoxItem Content="Windows 11" Tag="Windows11" />
                                 </ComboBox>
                             </Grid>
                         </Border>
@@ -2221,7 +2249,7 @@
                                     FontSize="14"
                                     FontWeight="SemiBold"
                                     Tapped="VersionText_Tapped"
-                                    Text="v1.4.9"
+                                    Text="v1.4.9.1"
                                     ToolTipService.ToolTip="连续点击五次可打开开发者管理中心" />
                             </Grid>
                         </Border>

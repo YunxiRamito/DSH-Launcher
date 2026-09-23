@@ -20,6 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -51,6 +52,28 @@ jobs:
           "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "zip=DeepSeekHarness-$projectVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: 校验 SignPath 配置
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+        run: |
+          $required = [ordered]@{
+            SIGNPATH_API_TOKEN = $env:SIGNPATH_API_TOKEN
+            SIGNPATH_ORGANIZATION_ID = $env:SIGNPATH_ORGANIZATION_ID
+            SIGNPATH_PROJECT_SLUG = $env:SIGNPATH_PROJECT_SLUG
+            SIGNPATH_SIGNING_POLICY_SLUG = $env:SIGNPATH_SIGNING_POLICY_SLUG
+            SIGNPATH_ARTIFACT_CONFIGURATION_SLUG = $env:SIGNPATH_ARTIFACT_CONFIGURATION_SLUG
+          }
+          $missing = @($required.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object { $_.Key })
+          if ($missing.Count -gt 0) {
+            throw "缺少 SignPath 配置: $($missing -join ', ')。请先按 SIGNING.md 完成仓库变量和 secret。"
+          }
+
       - name: 编译主程序(WinUI3)
         shell: pwsh
         run: |
@@ -76,20 +99,97 @@ jobs:
             "source\RuntimeBootstrap.cs"
           if ($LASTEXITCODE -ne 0) { throw "引导程序编译失败" }
 
-      - name: 打包并算哈希
+      - name: 打包未签名 ZIP
         shell: pwsh
         run: |
           Compress-Archive -Path 'source\dist-release\*' -DestinationPath '${{ steps.meta.outputs.zip }}' -CompressionLevel Optimal
-          $hash = (Get-FileHash '${{ steps.meta.outputs.zip }}' -Algorithm SHA256).Hash.ToLower()
-          Write-Host "SHA256: $hash"
-          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-        id: pack
 
-      - name: 存成构建产物(手动试跑时也能下载)
+      - name: 上传未签名 ZIP 给 SignPath
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: upload_unsigned
         uses: actions/upload-artifact@v7
         with:
-          name: Dafeiyu-Go-Launcher-${{ steps.meta.outputs.version }}
+          name: Dafeiyu-Go-Launcher-Unsigned-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.meta.outputs.zip }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: SignPath 深度签名
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_unsigned.outputs.artifact-id }}
+          output-artifact-directory: signed
+          skip-decompress: true
+          wait-for-completion: true
+          parameters: |
+            version: "${{ steps.meta.outputs.version }}"
+
+      - name: 校验签名并算哈希
+        id: pack
+        shell: pwsh
+        run: |
+          $isTagBuild = '${{ github.ref }}' -like 'refs/tags/v*'
+          $zip = if ($isTagBuild) {
+            Join-Path 'signed' '${{ steps.meta.outputs.zip }}'
+          } else {
+            '${{ steps.meta.outputs.zip }}'
+          }
+
+          if (-not (Test-Path -LiteralPath $zip)) {
+            throw "找不到待发布 ZIP: $zip"
+          }
+
+          if ($isTagBuild) {
+            $verifyDir = 'signature-verify'
+            Remove-Item $verifyDir -Recurse -Force -ErrorAction SilentlyContinue
+            Expand-Archive -LiteralPath $zip -DestinationPath $verifyDir -Force
+
+            $required = @(
+              'DeepSeek Harness.exe',
+              'DeepSeek Harness.Core.exe',
+              'DeepSeek Harness.Core.dll'
+            )
+            foreach ($name in $required) {
+              $path = Join-Path $verifyDir $name
+              if (-not (Test-Path -LiteralPath $path)) {
+                throw "签名 ZIP 缺少 $name"
+              }
+              $signature = Get-AuthenticodeSignature -LiteralPath $path
+              if ($signature.Status -ne 'Valid') {
+                throw "$name 签名无效: $($signature.Status)"
+              }
+              Write-Host "$name -> $($signature.SignerCertificate.Subject)"
+            }
+          }
+
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256: $hash"
+          Write-Host "ZIP: $zip"
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "signed=$($isTagBuild.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 存未签名构建产物(手动试跑)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: Dafeiyu-Go-Launcher-Unsigned-${{ steps.meta.outputs.version }}
+          path: ${{ steps.pack.outputs.zip }}
+          if-no-files-found: error
+
+      - name: 存已签名构建产物
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: Dafeiyu-Go-Launcher-Signed-${{ steps.meta.outputs.version }}
+          path: ${{ steps.pack.outputs.zip }}
           if-no-files-found: error
 
       # 本地发版脚本也会发 npm。若版本已经存在，重复 publish 必然失败，
@@ -133,19 +233,21 @@ jobs:
         shell: pwsh
         run: |
           npm config set //registry.npmjs.org/:_authToken '${{ secrets.NPM_TOKEN }}'
-          .\publish-npm.ps1 -Version '${{ steps.meta.outputs.version }}' -ZipPath '${{ steps.meta.outputs.zip }}' -NoWait
+          .\publish-npm.ps1 -Version '${{ steps.meta.outputs.version }}' -ZipPath '${{ steps.pack.outputs.zip }}' -NoWait
           if ($LASTEXITCODE -ne 0) { throw 'npm 发布失败' }
 
       - name: 发 Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: ${{ steps.meta.outputs.zip }}
+          files: ${{ steps.pack.outputs.zip }}
           generate_release_notes: true
           body: |
-            大肥鱼Go启动器自动构建产物 `${{ steps.meta.outputs.zip }}`
+            大肥鱼Go启动器已签名自动构建产物 `${{ steps.meta.outputs.zip }}`
 
             SHA256: `${{ steps.pack.outputs.sha256 }}`
+
+            Windows 发布者: SignPath Foundation
 
             同一份包也发到了 npm(`@yunxiramito/dsh-launcher@${{ steps.meta.outputs.version }}`),
             安装器在加速线路下优先从 npmmirror 取 —— 国内 10 MB 大约 1.4 秒。

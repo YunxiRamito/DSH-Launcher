@@ -17,6 +17,12 @@ namespace DeepSeekHarnessLauncher
         {
             try
             {
+                if (Program.Settings != null)
+                {
+                    CornerRadiusHelper.SetWindowStyle(
+                        Program.Settings.WindowStyle);
+                }
+
                 CornerRadiusHelper.ApplyApplicationResources(Resources);
             }
             catch (Exception exception)

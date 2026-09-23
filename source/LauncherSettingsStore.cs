@@ -320,6 +320,8 @@ namespace DeepSeekHarnessLauncher
                 "Light",
                 "Dark",
                 "System");
+            settings.WindowStyle = CornerRadiusHelper.NormalizeWindowStyle(
+                settings.WindowStyle);
             settings.AccentSource = NormalizeChoice(
                 settings.AccentSource,
                 "System",
