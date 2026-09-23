@@ -56,6 +56,14 @@ jobs:
           "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "zip=DeepSeekHarness-$projectVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+          # npm 只认三段式 semver:1.4.9 行,1.4.9.1 会被拒(Invalid version)。
+          # 四段版本就跳过 npm/npmmirror,安装器会自己回退到 GitHub 那条路。
+          $npmOk = $projectVersion -match '^\d+\.\d+\.\d+$'
+          "npm-ok=$($npmOk.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if (-not $npmOk) {
+            Write-Warning "版本 $projectVersion 不是三段式 semver,npm/npmmirror 分发跳过,国内走 GitHub 慢线路"
+          }
+
       - name: 校验 SignPath 配置
         if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_ENABLED == 'true'
         shell: pwsh
@@ -200,7 +208,7 @@ jobs:
       # 而这里本来就不需要覆盖 npm —— 直接跳过，Release 仍然继续。
       - name: 检查 npm 是否已有该版本
         id: npm_state
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.npm-ok == 'true'
         shell: pwsh
         run: |
           $package = '@yunxiramito/dsh-launcher'
@@ -233,7 +241,7 @@ jobs:
       # 需要仓库 secret NPM_TOKEN(带 bypass 2FA 的 npm token)。
       # 只在打 tag 时发:手动试跑重复发同版本号会直接撞车。
       - name: 发到 npm(npmmirror 会自动镜像)
-        if: startsWith(github.ref, 'refs/tags/v') && steps.npm_state.outputs.exists != 'true'
+        if: startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.npm-ok == 'true' && steps.npm_state.outputs.exists != 'true'
         shell: pwsh
         run: |
           npm config set //registry.npmjs.org/:_authToken '${{ secrets.NPM_TOKEN }}'
