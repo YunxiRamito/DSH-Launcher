@@ -262,10 +262,6 @@ jobs:
             Free code signing provided by [SignPath.io](https://about.signpath.io),
             certificate by [SignPath Foundation](https://signpath.org) —— ${{ env.SIGNING_ENABLED == 'true' && 'Windows 发布者: SignPath Foundation' || '本版尚未签名(等待 SignPath Foundation 审批),首次运行会有 SmartScreen 提示' }}
 
-            同一份包也发到了 npm(`@yunxiramito/dsh-launcher@${{ steps.meta.outputs.version }}`),
-            安装器在加速线路下优先从 npmmirror 取 —— 国内 10 MB 大约 1.4 秒。
+            ${{ steps.meta.outputs.npm-ok == 'true' && format('同一份包也发到了 npm(`@yunxiramito/dsh-launcher@{0}`),安装器在加速线路下优先从 npmmirror 取 —— 国内大约 1.4 秒。', steps.meta.outputs.version) || '本版是四段式版本号,npm 拒收,没有发 npm/npmmirror;安装器会自动回退到 GitHub 下载,国内会慢一些。' }}
 
-            > **先别急着更新 `manifest.json`。** npmmirror 同步有延迟,而安装器认的版本号
-            > 来自那份清单:清单先动了,正好卡在空窗期装的用户就只能落到 GitHub 那条慢路。
-            > 等下面这个地址能下再更新:
-            > `https://registry.npmmirror.com/@yunxiramito/dsh-launcher/-/dsh-launcher-${{ steps.meta.outputs.version }}.tgz`
+            ${{ steps.meta.outputs.npm-ok == 'true' && '> **先别急着更新 `manifest.json`。** npmmirror 同步有延迟,而安装器认的版本号来自那份清单:清单先动了,正好卡在空窗期装的用户就只能落到 GitHub 那条慢路。等 npmmirror 上能下到这一版再更新清单。' || '> **这份清单要马上更新。** 本版没走 npm,不存在镜像同步延迟;但 `sha256` 必须换成 CI 实际产出的哈希,否则安装器会直接判“启动器包校验失败”。' }}
