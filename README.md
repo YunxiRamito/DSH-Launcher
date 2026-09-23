@@ -253,3 +253,18 @@ See [`RELEASE.md`](RELEASE.md) for the full release flow.
 ### License
 
 MIT
+
+---
+
+## Code signing policy
+
+**代码签名政策**
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers / 提交与审查: [YunxiRamito](https://github.com/YunxiRamito)
+- Approvers / 批准人: [YunxiRamito](https://github.com/YunxiRamito)
+
+**Privacy policy / 隐私政策**: 本程序不收集、不上传用户数据。启动器只在你配置了 API Key 之后,用你自己的 Key 向 DeepSeek 官方 API 查询账户余额;更新检查只发起匿名下载请求。
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.

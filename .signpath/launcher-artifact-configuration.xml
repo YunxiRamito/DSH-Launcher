@@ -3,15 +3,20 @@
     xmlns="http://signpath.io/artifact-configuration/v1"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://signpath.io/artifact-configuration/v1 https://app.signpath.io/Web/artifact-configuration/v1.xsd">
-  <parameters>
-    <parameter name="version" required="true" />
-  </parameters>
-
   <!--
-    The GitHub artifact is the launcher ZIP itself (archive: false).
+    The GitHub artifact is the launcher ZIP itself (archive: false in
+    upload-artifact, skip-decompress: true in the signing action), so the ZIP
+    is the root element.
+
+    No <parameters> block: user-defined parameters are not included in the
+    SignPath subscription used here (the web editor rejects `parameters` with
+    "not available with your current subscription type"), so the version cannot
+    be injected from the workflow. The wildcard pins the archive name instead —
+    root paths must match exactly one file, which is the default.
+
     Sign only first-party files and leave third-party dependencies untouched.
   -->
-  <zip-file path="DeepSeekHarness-${version}.zip">
+  <zip-file path="DeepSeekHarness-*.zip">
     <pe-file path="DeepSeek Harness.exe">
       <authenticode-sign />
     </pe-file>

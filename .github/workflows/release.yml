@@ -128,8 +128,8 @@ jobs:
           output-artifact-directory: signed
           skip-decompress: true
           wait-for-completion: true
-          parameters: |
-            version: "${{ steps.meta.outputs.version }}"
+          # 不要传 parameters:工件配置里的 <parameters> 在当前订阅下不可用,
+          # 传了会被 SignPath 拒掉(参数未定义)。归档名用通配符匹配。
 
       - name: 校验签名并算哈希
         id: pack
@@ -247,7 +247,8 @@ jobs:
 
             SHA256: `${{ steps.pack.outputs.sha256 }}`
 
-            Windows 发布者: SignPath Foundation
+            Free code signing provided by [SignPath.io](https://about.signpath.io),
+            certificate by [SignPath Foundation](https://signpath.org) —— Windows 发布者: SignPath Foundation
 
             同一份包也发到了 npm(`@yunxiramito/dsh-launcher@${{ steps.meta.outputs.version }}`),
             安装器在加速线路下优先从 npmmirror 取 —— 国内 10 MB 大约 1.4 秒。
